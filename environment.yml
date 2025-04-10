@@ -1,0 +1,63 @@
+# environment.yml for RNA Folding Project - V1 PyTorch Pipeline
+# Defines the core environment for training and inference.
+# Feature extraction tools (ViennaRNA, MSA tools) are excluded
+# as features are assumed to be precomputed.
+
+name: rna-3d-folding # Environment name used in Dockerfile
+
+channels:
+  - pytorch # Prioritize PyTorch channel for PyTorch itself
+  - nvidia # For CUDA toolkit consistency
+  - conda-forge # High priority for most other packages
+  - defaults
+
+dependencies:
+  # --- Core Compute & Python ---
+  - python=3.10 # Or 3.11 - good balance of features and compatibility
+  - pip # For potential pip installs if needed later
+  - numpy # Fundamental package for numerical operations
+  - pandas # For data loading config/metadata if needed (e.g., reading sequence lists)
+  - scipy # Often used by underlying libraries or for metrics
+  - pyyaml # For loading config/default_config.yaml
+
+  # --- PyTorch ---
+  # Note: Specify minimum PyTorch version compatible with CUDA 12.1
+  # Actual version installed might be newer depending on channel priorities.
+  # Pin final versions before critical runs/sharing for reproducibility.
+  - pytorch>=2.1
+  - pytorch-cuda=12.1 # MUST match the CUDA version in the Docker base image
+
+  # --- Logging & Utilities ---
+  - tensorboard # For logging training progress
+  - tqdm # Progress bars
+
+  # --- Development & Debugging Tools (Optional but recommended for Dev container) ---
+  # Keep these if you plan to run notebooks or plot inside the container
+  - jupyter
+  - matplotlib
+  - seaborn
+  - ipywidgets # For interactive notebooks
+  # - biopython # Can be useful for sequence utils, consider adding if needed
+
+  # --- File I/O ---
+  - h5py # If using HDF5 format later, keep for flexibility
+
+# --- Dependencies Removed from Previous Version (Not needed for V1 Training/Inference Core) ---
+# - scikit-learn (not core V1 need)
+# - torchvision (not core V1 need)
+# - bioconda::viennarna (feature extraction only)
+# - bioconda::mafft (feature extraction only)
+# - bioconda::clustalo (feature extraction only)
+# - bioconda::infernal (feature extraction only)
+# - pymol-open-source (visualization only)
+# - Pip dependencies: py3Dmol, evcouplings, biotite (viz, feature extraction)
+
+# --- Final Pinning Recommendation ---
+# Before finalizing model training or sharing, it's critical to pin
+# exact versions for all packages (pytorch, numpy, pandas, etc.)
+# for maximum reproducibility. Example:
+#   - python=3.10.13
+#   - pytorch=2.1.2=py3.10_cuda12.1_cudnn8_0
+#   - numpy=1.26.4
+# Use 'conda list --explicit > spec-file.txt' in a working env
+# or manually specify versions here.
