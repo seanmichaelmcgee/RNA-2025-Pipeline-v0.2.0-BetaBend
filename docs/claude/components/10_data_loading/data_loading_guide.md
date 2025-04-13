@@ -125,7 +125,7 @@ def load_precomputed_features(target_id: str, features_dir: str) -> Dict[str, Di
         features['thermo'] = thermo_features
     
     # 3. Load evolutionary coupling features (optional)
-    mi_path = os.path.join(features_dir, "mi_features", f"{target_id}_features.npz")
+    mi_path = os.path.join(features_dir, "mi_features", f"{target_id}_mi_features.npz")
     if os.path.exists(mi_path):
         with np.load(mi_path) as data:
             features['evolutionary'] = {

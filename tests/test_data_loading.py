@@ -157,7 +157,7 @@ class TestLoadPrecomputedFeatures:
         np.savez(thermo_path, **mock_feature_data['thermo'])
         
         # Save evolutionary features
-        mi_path = mi_dir / f"{target_id}_features.npz"
+        mi_path = mi_dir / f"{target_id}_mi_features.npz"
         np.savez(mi_path, **mock_feature_data['evolutionary'])
         
         # Test loading all features

@@ -208,7 +208,7 @@ def process_batch(batch):
 ```python
 def load_evolutionary_features(target_id, features_dir):
     """Load evolutionary features if available."""
-    filepath = os.path.join(features_dir, f"{target_id}_features.npz")
+    filepath = os.path.join(features_dir, "mi_features", f"{target_id}_mi_features.npz")
     
     if not os.path.exists(filepath):
         warnings.warn(f"Evolutionary features not found for {target_id}. Using zeros.")

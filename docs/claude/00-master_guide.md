@@ -62,12 +62,12 @@ Follow this sequence to implement the full system:
 ```python
 # CORRECT - paths as arguments
 def load_features(target_id: str, features_dir: str):
-    feature_path = os.path.join(features_dir, f"{target_id}_features.npz")
+    feature_path = os.path.join(features_dir, "mi_features", f"{target_id}_mi_features.npz")
     # ...
 
 # INCORRECT - hardcoded paths
 def load_features(target_id: str):
-    feature_path = f"data/features/{target_id}_features.npz"  # NEVER DO THIS
+    feature_path = f"data/features/mi_features/{target_id}_mi_features.npz"  # NEVER DO THIS
     # ...
 ```
 

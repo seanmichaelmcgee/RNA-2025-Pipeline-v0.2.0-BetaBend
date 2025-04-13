@@ -370,6 +370,16 @@ def verify_features_exist(target_ids, features_dir):
         
         if not os.path.exists(thermo_path):
             missing_files.append(thermo_path)
+        
+        # Optionally check MI features
+        mi_path = os.path.join(
+            features_dir,
+            "mi_features",
+            f"{target_id}_mi_features.npz"
+        )
+        
+        if not os.path.exists(mi_path):
+            print(f"Warning: MI features not found at {mi_path} (optional)")
     
     if missing_files:
         raise FileNotFoundError(
