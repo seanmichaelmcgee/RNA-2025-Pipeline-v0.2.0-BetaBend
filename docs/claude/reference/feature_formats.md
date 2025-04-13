@@ -8,7 +8,7 @@ The RNA 3D folding pipeline uses three primary types of precomputed features:
 
 1. **Dihedral Features**: Backbone geometry information in the form of pseudo-dihedral angles
 2. **Thermodynamic Features**: RNA folding energetics and secondary structure probabilities
-3. **Evolutionary Features**: Evolutionary coupling information derived from multiple sequence alignments
+3. **Evolutionary Features (MI)**: Evolutionary coupling information derived from multiple sequence alignments
 
 ## File Organization and Naming Conventions
 
@@ -22,14 +22,14 @@ data/processed/
 │   ├── {target_id}_thermo_features.npz
 │   └── ...
 └── mi_features/
-    ├── {target_id}_features.npz
+    ├── {target_id}_mi_features.npz
     └── ...
 ```
 
 ### Naming Pattern
 - Dihedral: `{target_id}_dihedral_features.npz`
 - Thermo: `{target_id}_thermo_features.npz`
-- Evolutionary MI: `{target_id}_features.npz` (within `mi_features/`)
+- Evolutionary MI: `{target_id}_mi_features.npz` (within `mi_features/` directory)
 
 ## 1. Dihedral Feature Files
 
@@ -58,20 +58,28 @@ Dihedral features represent the RNA backbone geometry through pseudo-dihedral an
 
 - **Boundary Residues**: The first and last few residues may have NaN values (or zeros) as pseudo-dihedrals require 4 consecutive positions
 
-### Example Data (from 1A51_A_dihedral_features.npz)
+### Example Data
 ```python
-# features array - shape (41, 4)
+# features array - shape (20, 4)
 features = [
  [0, 0, 0, 0],  # First residue (boundary)
- [-0.3710391936512465, 0.9286172068051683, 0.7956411540985328, 0.6057682344797842],
- [0.7956411540985328, 0.6057682344797842, 0.41479551457531194, -0.9099146559365896],
+ [0.3165691903994371, 0.9485694216502264, 0.38655602048917104, 0.9222659285821935],
+ [0.38655602048917104, 0.9222659285821935, 0.19483134239692543, 0.9808367591091863],
  # ... more residues
  [0, 0, 0, 0]   # Last residue (boundary)
 ]
 
 # Raw angle arrays
-eta = [NaN, -21.77972132590914, 52.71585626826523, ...]  # shape (41,)
-theta = [NaN, 52.71585626826523, 155.49356027602423, ...]  # shape (41,)
+eta = [NaN, 18.455570404571613, 22.740373940772656, ...]  # shape (20,)
+theta = [NaN, 22.740373940772656, 11.234871255751486, ...]  # shape (20,)
+
+# Feature names
+feature_names = ['eta_sin', 'eta_cos', 'theta_sin', 'theta_cos']
+
+# Metadata
+metadata = '{"feature_names": ["eta_sin", "eta_cos", "theta_sin", "theta_cos"], 
+             "feature_description": "Pseudo-dihedral angle features in sin/cos encoding",
+             "extraction_timestamp": "2025-04-13 00:10:44"}'
 ```
 
 ### Loading Pattern
@@ -123,23 +131,22 @@ Thermodynamic features capture RNA folding energetics and secondary structure pr
 
 | Array Name | Data Type | Description | Example |
 |------------|-----------|-------------|---------|
-| `mfe` | `float32` | Minimum Free Energy (kcal/mol) | -19.39 |
-| `ensemble_energy` | `float32` | Free energy of the ensemble | -19.38 |
+| `mfe` | `float32` | Minimum Free Energy (kcal/mol) | -13.60 |
+| `ensemble_energy` | `float32` | Free energy of the ensemble | -13.59 |
 | `energy_gap` | `float32` | Difference between MFE and ensemble | 0.01 |
-| `mfe_probability` | `float32` | Boltzmann probability of MFE structure | 0.406 |
-| `gc_content` | `float32` | Fraction of G-C pairs in sequence | 0.658 |
-| `paired_fraction` | `float32` | Fraction of paired nucleotides in MFE | 0.682 |
-| `avg_pair_distance_mean` | `float32` | Mean base pairing distance | 16.21 |
-| `free_energy_per_nucleotide` | `float32` | MFE normalized by sequence length | -0.473 |
+| `mfe_probability` | `float32` | Boltzmann probability of MFE structure | 0.974 |
+| `gc_content` | `float32` | Fraction of G-C pairs in sequence | 0.65 |
+| `paired_fraction` | `float32` | Fraction of paired nucleotides in MFE | 0.8 |
+| `avg_stem_length` | `float32` | Average stem length | 8.0 |
+| `free_energy_per_nucleotide` | `float32` | MFE normalized by sequence length | -0.68 |
 
 #### Vector Features (Per-Residue)
 
 | Array Name | Shape | Description | Value Range |
 |------------|-------|-------------|-------------|
-| `positional_entropy` | `(N,)` | Shannon entropy at each position | [0, log2(4)] |
-| `position_entropy` | `(N,)` | Alias for `positional_entropy` | [0, log2(4)] |
+| `positional_entropy` | `(N,)` | Shannon entropy at each position | [0, log₂(4)] |
 | `accessibility` | `(N,)` | Unpaired probability per nucleotide | [0, 1] |
-| `sequence` | `string` | The RNA sequence | "GGCCGA..." |
+| `sequence` | `string` | The RNA sequence | "GGACUAGCG..." |
 
 #### Matrix Features (Pairwise)
 
@@ -153,33 +160,33 @@ Thermodynamic features capture RNA folding energetics and secondary structure pr
 | Array Name | Type | Description |
 |------------|------|-------------|
 | `structure` or `mfe_structure` | `string` | Dot-bracket notation of MFE structure |
-| `seq_id` | `string` | Sequence ID |
+| `target_id` | `string` | Sequence ID |
 | `processing_timestamp` | `string` | When features were computed |
 
-### Example Data (from 1A51_A_thermo_features.npz)
+### Example Data
 ```python
 # Scalar features
-mfe = -19.399999618530273
-ensemble_energy = -19.389999618530272
-mfe_probability = 0.4068769160792827
-gc_content = 0.6585365853658537
+mfe = -13.600000381469727
+ensemble_energy = -13.590000381469727
+mfe_probability = 0.974221294229328
+gc_content = 0.65
 
-# Vector features (shape = 41 for RNA of length 41)
-positional_entropy = [0.9873037385331406, 0.9584614333282193, 0.9043900159501144, ...]
-accessibility = [0.03810113393677772, 0.043191132112834096, 0.04019611206075213, ...]
+# Vector features (shape = 20 for RNA of length 20)
+positional_entropy = [0.9218817563464707, 0.8558744804008804, 0.8477366983300982, ...]
+accessibility = [0.15, 0.14, 0.15, 0.18, 0.11, 0.10, 0.09, 0.08, 0.98, 0.99, ...]
 
-# Matrix features (shape = 41x41)
+# Matrix features (shape = 20x20)
 pairing_probs = [
-    [0, 0, 0, 0, 0.0239, ...],
-    [0, 0, 0, 0, 0.0233, ...],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0.02, 0.01, ...],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0.01, 0.03, ...],
     # ... more rows
 ]
 
 # Sequence
-sequence = 'GGCCGAUGGUAGUGUGGGGUCUCCCCAUGCGAGAGUAGGCC'
+sequence = 'GGACUAGCGGAGGCUAGUCC'
 
 # Structure
-mfe_structure = '((((.((....((((((((...))))))))....)).))))'
+mfe_structure = '((((((((....))))))))'
 ```
 
 ### Loading Pattern
@@ -236,33 +243,41 @@ def load_thermo_features(target_id: str, features_dir: str) -> Dict[str, np.ndar
   1. Broadcasting to all residues (e.g., `mfe` → tensor of shape (N,) with same value)
   2. Feeding into a global conditioning network
 
-## 3. Evolutionary Coupling Features
+## 3. Evolutionary Coupling Features (MI)
 
 ### Purpose
-Evolutionary coupling features capture co-evolutionary signals derived from multiple sequence alignments (MSAs). These indicate pairs of positions that may be in spatial proximity in the folded structure.
+Evolutionary coupling features (MI) capture co-evolutionary signals derived from multiple sequence alignments (MSAs). These indicate pairs of positions that may be in spatial proximity in the folded structure.
 
 ### Key Arrays
 
 | Array Name | Shape | Data Type | Description |
 |------------|-------|-----------|-------------|
 | `coupling_matrix` | `(N, N)` | `float32` | Mutual information scores between residue pairs |
-| `method` | scalar | `string` | Method used for MI calculation, e.g., "mutual_information_enhanced" |
+| `method` | scalar | `string` | Method used for MI calculation, e.g., "mutual_information" |
 | `sequence_count` | scalar | `int` | Number of sequences in the MSA |
-| `sequence_length` | scalar | `int` | Length of the target sequence |
-| `conservation` | `(N,)` | `float32` | Per-position conservation scores (optional) |
+| `top_pairs` | `(P, 3)` | `float32` | Top P coupling pairs: [i, j, score] |
+| `score_distance_correlation` | scalar | `float32` | Correlation between MI scores and distances |
 
-### Example Data (from 1A51_A_features.npz)
+### Example Data
 ```python
-# Coupling matrix (shape = 40x40 for RNA of length 40)
+# Coupling matrix (shape = 20x20 for RNA of length 20)
 coupling_matrix = [
-    [0.00004353, 0.00150399, 0.00656933, ...],
-    [0.00150399, 0.01123879, 0.02858577, ...],
+    [0, 0.6212779434913056, 0.6212779434913056, ...],
+    [0.6212779434913056, 0, 0.6212779434913056, ...],
     # ... more rows
 ]
 
-method = 'mutual_information_enhanced'
-sequence_count = 3000
-sequence_length = 40
+method = 'mutual_information'
+
+# Top coupling pairs [pos_i, pos_j, score]
+top_pairs = [
+    [0, 4, 0.6212779434913057],
+    [0, 14, 0.6212779434913057],
+    [0, 17, 0.6212779434913057],
+    # ... more pairs
+]
+
+score_distance_correlation = 0.010928879659172563
 ```
 
 ### Important Considerations
@@ -274,7 +289,7 @@ sequence_length = 40
 ```python
 def load_evolutionary_features(target_id: str, features_dir: str) -> Dict[str, np.ndarray]:
     """Load evolutionary coupling features from npz file."""
-    file_path = os.path.join(features_dir, "mi_features", f"{target_id}_features.npz")
+    file_path = os.path.join(features_dir, "mi_features", f"{target_id}_mi_features.npz")
     
     if not os.path.exists(file_path):
         warnings.warn(f"Evolutionary features not found for {target_id}. Using zeros.")
@@ -294,9 +309,13 @@ def load_evolutionary_features(target_id: str, features_dir: str) -> Dict[str, n
         else:
             raise ValueError(f"No coupling matrix found for {target_id}")
         
-        # Extract conservation values if needed
-        if 'conservation' in data:
-            features['conservation'] = data['conservation'].astype(np.float32)
+        # Extract method if available
+        if 'method' in data:
+            features['method'] = str(data['method'])
+        
+        # Extract top pairs if available
+        if 'top_pairs' in data:
+            features['top_pairs'] = data['top_pairs'].astype(np.float32)
         
         return features
 ```
@@ -382,7 +401,7 @@ def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         'pairing_probs': torch.tensor(features['thermo']['pairing_probs'], dtype=torch.float32),
         'positional_entropy': torch.tensor(features['thermo']['positional_entropy'], dtype=torch.float32),
         'coupling_matrix': torch.tensor(features['evolutionary']['coupling_matrix'], dtype=torch.float32),
-        'coordinates': torch.tensor(self.coordinates[idx], dtype=torch.float32) if self.coordinates is not None else None,
+        'coordinates': torch.tensor(self.coordinates[target_id], dtype=torch.float32) if target_id in self.coordinates else None,
         'length': len(self.sequences[idx])
     }
     
@@ -414,9 +433,9 @@ def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
 
 ## Reference Example Files
 
-These real examples are available in the project for testing and validation:
-- `1A51_A_dihedral_features.npz.txt`
-- `1A51_A_thermo_features.npz.txt`
-- `1A51_A_features.npz.txt`
+These file patterns are available in our project for testing and validation:
+- `{target_id}_dihedral_features.npz` - Dihedral angle features
+- `{target_id}_thermo_features.npz` - Thermodynamic features
+- `{target_id}_mi_features.npz` - Mutual information/evolutionary coupling features
 
 Use these files to validate your loading functions and verify expected array shapes and types.
