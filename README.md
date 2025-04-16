@@ -98,6 +98,81 @@ dataset = RNADataset(
 - End-to-end prediction from features to 3D coordinates
 - Configuration-driven parameter management
 
+## Multi-Instance Development Architecture
+
+This project is being developed using a specialized multi-instance Claude Code architecture that divides work across four specialized AI instances, each focused on specific components of the system.
+
+### 1. Overview of Multi-Instance Approach
+
+Each Claude Code instance specializes in a specific part of the codebase, enabling:
+- Deep expertise in particular component groups
+- Efficient context utilization through focused development
+- Clear responsibility boundaries
+- Parallel development across the pipeline
+- Structured knowledge transfer through documentation
+
+### 2. The Four Specialized Instances
+
+1. **Data Pipeline Instance (01_data_pipeline)**
+   - Dataset implementation for RNA sequences and features
+   - Feature loading and processing utilities
+   - Batch collation for variable-length sequences
+   - Masking and padding mechanisms
+
+2. **Model Components Instance (02_model_components)**
+   - Embedding layers for sequence and positional representations
+   - Transformer blocks with attention mechanisms
+   - IPA module implementation for coordinate prediction
+   - Component-level testing and validation
+
+3. **Integration Instance (03_integration)**
+   - Main model architecture assembly
+   - Loss function implementation
+   - End-to-end data flow coordination
+   - Configuration handling and hyperparameter management
+
+4. **Testing Instance (04_testing)**
+   - Comprehensive test suite development
+   - Edge case testing and validation
+   - Performance benchmarking
+   - Integration testing across components
+
+### 3. Coordination and Knowledge Sharing
+
+This architecture relies on structured communication and formalized documentation:
+
+- **Interface Contracts**: Formal specifications detailing tensor shapes, types, and behavior
+- **Implementation Journals**: Records of decisions, progress, and challenges
+- **Handoff Protocol**: Standardized process for transitioning components between instances
+- **Component Status Tracking**: Global visibility into implementation progress
+- **Shared Documentation**: Common reference materials and design patterns
+
+### 4. Communication Flow
+
+```
+┌───────────────────┐      ┌───────────────────┐
+│                   │      │                   │
+│  01_data_pipeline ├─────►│  03_integration   │
+│  (Data Processing)│      │  (Model Assembly) │
+│                   │      │                   │
+└───────────────────┘      └─────────┬─────────┘
+                                     │
+┌───────────────────┐                │
+│                   │                │
+│ 02_model_components ◄───────┐      │
+│  (Neural Network)  │        │      │
+│                   │        │      │
+└─────────┬─────────┘        │      │
+          │                  │      │
+          ▼                  │      ▼
+┌───────────────────┐        │      │
+│                   │        │      │
+│    04_testing     ◄────────┴──────┘
+│  (Verification)   │
+│                   │
+└───────────────────┘
+```
+
 ## Workflows
 
 ### Development Workflow
@@ -141,93 +216,52 @@ with torch.no_grad():
         confidence = outputs['confidence']    # Shape: (B, L)
 ```
 
-## Claude Code Multi-Instance Strategy
+## Key Implementation Principles
 
-This project employs an innovative approach using multiple Claude Code instances working in parallel on different components. Each instance specializes in a specific part of the codebase:
+1. **Path Parameterization (Critical)**
+   - No hardcoded paths in source modules
+   - All file/directory paths passed as arguments
+   - Use `os.path.join()` for path construction
+   - Enables compatibility with both local dev and Kaggle environments
 
-### 1. Instance Structure
+2. **Modularity and Testing**
+   - Clear interfaces between components
+   - Independent testability of each module
+   - Comprehensive unit tests alongside implementation
+   - Memory and performance optimization
 
-- **Data Pipeline Instance (01_data_pipeline)**:
-  - Implements data loading components
-  - Handles feature preprocessing
-  - Creates dataset and dataloader classes
+3. **Device Compatibility**
+   - All components work on both CPU and CUDA
+   - Device-agnostic tensor operations
+   - Proper handling of tensor device placement
 
-- **Model Components Instance (02_model_components)**:
-  - Implements embedding layers
-  - Builds transformer blocks
-  - Creates IPA module placeholder
+4. **Error Handling and Robustness**
+   - Informative error messages
+   - Graceful handling of missing features or edge cases
+   - Numerical stability in all operations
+   - Proper mask propagation throughout pipeline
 
-- **Integration Instance (03_integration)**:
-  - Assembles the main model
-  - Implements loss functions
-  - Handles end-to-end integration
+## Next Development Steps
 
-- **Testing Instance (04_testing)**:
-  - Develops comprehensive test suites
-  - Tests edge cases and error conditions
-  - Verifies performance and memory usage
+1. **Complete Data Pipeline Implementation**
+   - Finalize feature loading with robust error handling
+   - Implement efficient batch collation for variable sequences
+   - Add comprehensive test coverage
 
-### 2. Coordination Approach
+2. **Develop Core Model Components**
+   - Implement embedding and transformer modules
+   - Create IPA module placeholder with coordinate prediction
+   - Test shape transformations and mask propagation
 
-- **Interface-First Development**:
-  - Define interfaces before implementation
-  - Establish strict contracts between components
-  - Document tensor shapes and types thoroughly
-
-- **Cross-Instance Communication**:
-  - Standardized handoff procedures
-  - Detailed interface documentation
-  - Common reference materials
-
-- **Unified Code Standards**:
-  - Consistent naming conventions
-  - Standard docstring format
-  - Clear component boundaries
-
-### 3. Implementation Workflow
-
-- **Initial Sequential Phase**:
-  - Begin with Data Pipeline instance
-  - Followed by Model Components
-  - Then Integration instance
-  - Testing in parallel throughout
-
-- **Transition to Parallel Development**:
-  - Multiple instances work simultaneously
-  - Coordinate through interface documentation
-  - Regular synchronization points
-
-## Next Major Steps
-
-1. **Data Pipeline Implementation**:
-   - Complete `RNADataset` class implementation
-   - Add comprehensive feature loading utilities
-   - Implement collate function for batching
-   - Write unit tests for data components
-
-2. **Model Component Development**:
-   - Implement embedding layers following specifications
-   - Create transformer block with residue/pair updates
-   - Develop IPA module placeholder (V1)
-   - Test each component independently
-
-3. **Integration Phase**:
-   - Assemble full RNA folding model
-   - Implement and test loss functions
+3. **Integrate Full Model Architecture**
+   - Assemble components into end-to-end model
+   - Implement loss functions with proper weighting
    - Create training loop and evaluation metrics
-   - Verify end-to-end data flow
 
-4. **Testing and Validation**:
-   - Build comprehensive test suite
-   - Verify with validation data
-   - Conduct performance analysis
-   - Ensure Kaggle compatibility
-
-5. **Documentation and Refinement**:
-   - Update component documentation
-   - Refine configuration system
+4. **Comprehensive Testing and Optimization**
+   - Validate with synthetic data and real examples
    - Optimize memory usage and performance
-   - Prepare submission template
+   - Prepare Kaggle-compatible submission pipeline
 
 ## References
 

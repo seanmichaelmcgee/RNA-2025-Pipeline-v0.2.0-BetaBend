@@ -1,61 +1,235 @@
-Debugging Workflow: RNA 3D Folding Pipeline
-1. Overview & Debug Philosophy
-1.1 Introduction
+# START OF FILE: docs/claude/workflows/80_debugging.md
+
+# Debugging Workflow: RNA 3D Folding Pipeline
+
+**Version:** 1.3 (Restored original content, integrated tools from Loss Examples)
+**Date:** 2024-04-15
+
+## 1. Overview & Debug Philosophy
+
+### 1.1 Introduction
+
 Debugging a complex machine learning pipeline like our RNA 3D folding system requires a systematic, scientific approach. This document provides a comprehensive framework for identifying, diagnosing, and resolving issues throughout the pipeline, from data loading to model prediction and evaluation.
+
 Our debugging philosophy is guided by these core principles:
-    • Isolation: Isolate components to find the exact source of an issue 
-    • Reproducibility: Ensure bugs can be consistently reproduced 
-    • Evidence-Based: Collect concrete evidence through logging and instrumentation 
-    • Incremental: Fix issues one at a time, verifying each solution 
-    • Documentation: Record findings and solutions for future reference 
-1.2 Debug Environment Setup
+
+*   **Isolation**: Isolate components to find the exact source of an issue.
+*   **Reproducibility**: Ensure bugs can be consistently reproduced with fixed seeds and environments.
+*   **Evidence-Based**: Collect concrete evidence through logging, assertions, and instrumentation.
+*   **Incremental**: Fix issues one at a time, verifying each solution before proceeding.
+*   **Documentation**: Record findings, root causes, and solutions for future reference.
+
+### 1.2 Debug Environment Setup
+
 Before beginning any debugging session, establish a clean and controlled environment:
-# 1. Start with a fresh clone if possible
-git clone https://github.com/your-org/rna-3d-folding.git
-cd rna-3d-folding
+
+```bash
+# 1. Start with a fresh clone or clean working directory
+# git clean -fdx
+# git reset --hard HEAD
 
 # 2. Use the Docker environment for reproducibility
+# Ensure the image is built with the latest code
 docker build -t rna-3d-folding .
-docker run -it --gpus all -v $(pwd):/app rna-3d-folding bash
+# Run the container, mounting project and data directories
+docker run --rm -it --gpus all \
+  -v $(pwd):/app \
+  -v /path/to/local/data:/app/data \
+  rna-3d-folding bash
 
-# 3. Activate the conda environment
+# 3. Activate the conda environment inside the container
 conda activate rna-3d-folding
 
-# 4. Set debugging flags for PyTorch
-export PYTORCH_DEBUG=1
-export CUDA_LAUNCH_BLOCKING=1  # For CUDA error debugging
-1.3 Debug Toolkit and Utilities
+# 4. Set debugging flags for PyTorch (optional, can slow down execution)
+# export PYTORCH_DEBUG=1 # More verbose PyTorch errors
+export CUDA_LAUNCH_BLOCKING=1 # For clearer CUDA error stack traces
+```
+
+### 1.3 Debug Toolkit and Utilities
+
 Equip yourself with these essential debugging tools:
-    1. PyTorch Debugging Tools:
-        ◦ torch.autograd.detect_anomaly(): Enable autograd anomaly detection 
-        ◦ torch.autograd.profiler: Profile computational performance 
-    2. Memory Profiling:
-        ◦ torch.cuda.memory_summary(): GPU memory usage 
-        ◦ nvidia-smi: System-level GPU monitoring 
-    3. Logging Utilities:
-        ◦ Python's logging module with appropriate log levels 
-        ◦ Custom tensor inspection utilities (shape, dtype, device, etc.) 
-    4. Debug Helper Functions:
-def inspect_tensor(tensor, name="tensor", full_stats=False):
-    """Print comprehensive information about a tensor."""
-    print(f"--- {name} ---")
-    print(f"Shape: {tensor.shape}")
-    print(f"Dtype: {tensor.dtype}")
-    print(f"Device: {tensor.device}")
-    print(f"Min/Max: {tensor.min().item():.6f} / {tensor.max().item():.6f}")
-    print(f"Mean/Std: {tensor.mean().item():.6f} / {tensor.std().item():.6f}")
-    print(f"Has NaN: {torch.isnan(tensor).any().item()}")
-    print(f"Has Inf: {torch.isinf(tensor).any().item()}")
-    
-    if full_stats and not (torch.isnan(tensor).any() or torch.isinf(tensor).any()):
-        print(f"Histogram: {torch.histc(tensor.float(), bins=10).tolist()}")
-    
-    # First few values for inspection
-    flat = tensor.flatten()
-    print(f"First 5 values: {flat[:5].tolist()}")
-    print("-------------------")
-2. Debugging Methodology
-2.1 Systematic Debugging Framework
+
+1.  **PyTorch Debugging Tools**:
+    *   `torch.autograd.detect_anomaly()`: Enable autograd anomaly detection during backward pass. Use within a `with` block: `with torch.autograd.detect_anomaly(): loss.backward()`.
+    *   `torch.autograd.profiler`: Profile computational performance and memory usage.
+2.  **Memory Profiling**:
+    *   `torch.cuda.memory_summary()`, `torch.cuda.memory_allocated()`, `torch.cuda.max_memory_allocated()`: GPU memory inspection.
+    *   `nvidia-smi`: System-level GPU monitoring (run outside container if needed, or inside if installed).
+    *   Python `tracemalloc` module for detailed CPU memory allocation tracking.
+3.  **Logging Utilities**:
+    *   Python's `logging` module with appropriate levels (DEBUG, INFO, WARNING, ERROR). Configure it early in your scripts.
+    *   TensorBoard for visualizing metrics, losses, and model graphs (`torch.utils.tensorboard.SummaryWriter`).
+4.  **Debug Helper Functions**: (Place these in a `src/utils/debug_utils.py` or similar file and import them)
+
+    ```python
+    # src/utils/debug_utils.py (Example)
+    import torch
+    import numpy as np
+    import logging
+    import gc
+    from typing import Dict, Any, Optional, List, Tuple
+
+    def inspect_tensor(tensor: Optional[torch.Tensor], name: str = "tensor", full_stats: bool = False):
+        """Print comprehensive information about a tensor for debugging."""
+        if not isinstance(tensor, torch.Tensor):
+            print(f"--- {name}: Not a Tensor (type: {type(tensor)}) ---")
+            return
+        print(f"--- {name} ---")
+        print(f"Shape: {tuple(tensor.shape)}")
+        print(f"Dtype: {tensor.dtype}")
+        print(f"Device: {tensor.device}")
+        print(f"Requires Grad: {tensor.requires_grad}")
+        if tensor.numel() == 0:
+            print("Tensor is empty.")
+            print("-------------------")
+            return
+        try:
+            # Attempt conversion to float for stats, handle non-float types gracefully
+            try:
+                # Use .detach() in case tensor requires grad, for stats calculation
+                float_tensor = tensor.detach().float()
+                stats_possible = True
+            except RuntimeError:
+                stats_possible = False # Cannot convert non-numeric tensor (e.g., bool)
+
+            if stats_possible:
+                # Check for NaNs/Infs first, as stats methods might fail on them
+                has_nan = torch.isnan(float_tensor).any().item()
+                has_inf = torch.isinf(float_tensor).any().item()
+                print(f"Has NaN: {has_nan}")
+                print(f"Has Inf: {has_inf}")
+
+                if not (has_nan or has_inf): # Compute stats only if values are finite
+                    print(f"Min/Max: {float_tensor.min().item():.6f} / {float_tensor.max().item():.6f}")
+                    print(f"Mean/Std: {float_tensor.mean().item():.6f} / {float_tensor.std().item():.6f}")
+                    if full_stats and tensor.numel() > 0:
+                        # Ensure tensor is on CPU for histc if needed, handle potential errors
+                        try:
+                            hist = torch.histc(float_tensor.cpu(), bins=10).long().tolist()
+                            print(f"Histogram (10 bins): {hist}")
+                        except Exception as hist_e:
+                            print(f"Could not compute histogram: {hist_e}")
+                else:
+                     print("Skipping Min/Max/Mean/Std/Histogram due to NaN/Inf values.")
+
+
+            # First few values for inspection
+            flat = tensor.flatten()
+            print(f"First 5 values: {flat[:min(5, flat.numel())].tolist()}")
+
+        except Exception as e:
+            print(f"Error during tensor inspection for '{name}': {e}")
+        print("-------------------")
+
+    def profile_memory(label: str = "", verbose: bool = True) -> Dict[str, float]:
+        """Print memory usage statistics and return them."""
+        stats = {}
+        if torch.cuda.is_available():
+            gc.collect() # Suggest garbage collection first
+            torch.cuda.empty_cache() # Clear unused cache
+            allocated = torch.cuda.memory_allocated() / (1024 ** 2)
+            # Note: max_memory_allocated is peak since last reset, not current peak
+            # For peak *during* an operation, reset *before* the operation
+            max_allocated_since_reset = torch.cuda.max_memory_allocated() / (1024 ** 2)
+            reserved = torch.cuda.memory_reserved() / (1024 ** 2)
+            max_reserved_since_reset = torch.cuda.max_memory_reserved() / (1024 ** 2)
+            stats = {
+                'allocated_mb': allocated, 'peak_allocated_mb': max_allocated_since_reset,
+                'reserved_mb': reserved, 'peak_reserved_mb': max_reserved_since_reset
+            }
+            if verbose:
+                print(f"\n--- Memory usage at {label} ---")
+                print(f"Allocated: {allocated:.2f} MB (Peak Since Reset: {max_allocated_since_reset:.2f} MB)")
+                print(f"Reserved: {reserved:.2f} MB (Peak Since Reset: {max_reserved_since_reset:.2f} MB)")
+        elif verbose:
+            print(f"\n--- Memory usage at {label}: CUDA not available ---")
+        return stats
+
+    # Add other helpers like analyze_gradients, log_gradient_issues etc. here
+    # ... (Include implementations for analyze_gradients, log_gradient_issues etc. from previous response) ...
+    def analyze_gradients(model: torch.nn.Module, norm_threshold: float = 10.0) -> Dict:
+        """Analyze gradient statistics per parameter."""
+        gradient_stats = {}
+        total_norm = 0.0
+        num_params_with_grad = 0
+        num_params_zero_grad = 0
+        num_params_nan_inf_grad = 0
+        num_params_exploding = 0
+        num_params_vanishing = 0
+
+        for name, param in model.named_parameters():
+            if not param.requires_grad:
+                continue
+            if param.grad is None:
+                # logging.debug(f"No gradient for parameter: {name}") # Too verbose usually
+                stats = {'norm': 0.0, 'status': 'NoGrad'}
+            else1.1:
+                grad = param.grad.detach()
+                stats = {'status': 'OK'}
+                if not torch.isfinite(grad).all(): # Check for NaN/Inf
+                    logging.warning(f"NaN/Inf gradient detected in parameter: {name}")
+                    stats = {'norm': float('inf'), 'status': 'NaN/Inf'}
+                    num_params_nan_inf_grad += 1
+                else:
+                    norm = grad.norm().item()
+                    stats = {
+                        'mean': grad.mean().item(),
+                        'std': grad.std().item(),
+                        'min': grad.min().item(),
+                        'max': grad.max().item(),
+                        'norm': norm,
+                        'magnitude_mean': torch.abs(grad).mean().item(),
+                        'zero_fraction': (grad == 0).float().mean().item(),
+                        'status': 'OK'
+                    }
+                    total_norm += norm**2
+                    num_params_with_grad += 1
+                    if norm == 0.0:
+                        stats['status'] = 'Zero'
+                        num_params_zero_grad += 1
+                    elif norm > norm_threshold:
+                        stats['status'] = 'Exploding'
+                        num_params_exploding += 1
+                    elif norm < 1e-8: # Adjust threshold as needed
+                        stats['status'] = 'Vanishing'
+                        num_params_vanishing += 1
+
+            gradient_stats[name] = stats
+
+        total_norm = total_norm**0.5
+        gradient_stats['overall'] = {
+            'total_norm': total_norm,
+            'params_with_grad': num_params_with_grad,
+            'params_zero_grad': num_params_zero_grad,
+            'params_nan_inf_grad': num_params_nan_inf_grad,
+            'params_exploding': num_params_exploding,
+            'params_vanishing': num_params_vanishing
+            }
+        # log_gradient_issues(gradient_stats) # Call logging function separately if desired
+        return gradient_stats
+
+    def log_gradient_issues(gradient_stats: Dict) -> bool:
+        """Log gradient issues based on analysis."""
+        overall = gradient_stats.get('overall', {})
+        has_issues = False
+        if overall.get('params_nan_inf_grad', 0) > 0:
+            logging.warning(f"NaN/Inf gradients detected in {overall['params_nan_inf_grad']} parameter(s).")
+            has_issues = True
+        if overall.get('params_exploding', 0) > 0:
+            logging.warning(f"Exploding gradients detected in {overall['params_exploding']} parameter(s).")
+            has_issues = True
+        # Decide if vanishing/zero are critical issues to return True for
+        if overall.get('params_vanishing', 0) > 0:
+             logging.warning(f"Vanishing gradients detected in {overall['params_vanishing']} parameter(s).")
+        if overall.get('params_zero_grad', 0) > 0:
+             logging.warning(f"Zero gradients detected in {overall['params_zero_grad']} parameter(s).")
+        return has_issues
+    ```
+
+## 2. Debugging Methodology
+
+### 2.1 Systematic Debugging Framework
+
 Follow this structured approach to efficiently diagnose and fix issues:
     1. Observe: Clearly define the problem and how it manifests 
     2. Reproduce: Create a minimal test case that reliably triggers the issue 
@@ -64,7 +238,9 @@ Follow this structured approach to efficiently diagnose and fix issues:
     5. Isolate: Narrow down to the exact source of the problem 
     6. Solve: Implement and verify a solution 
     7. Document: Record the issue, root cause, and solution 
-2.2 Issue Categorization
+    
+### 2.2 Issue Categorization
+
 Classify issues to guide your debugging strategy:
 Category
 Symptoms
@@ -84,7 +260,10 @@ Memory profiling, operation optimization
 Integration
 Module interaction errors, path resolution failures
 Interface validation, dependency testing
-2.3 Diagnostic Hierarchy
+
+
+### 2.3 Diagnostic Hierarchy & `debug_test_failure`
+
 Use this decision tree to systematically narrow down the source of issues:
 1. Is the issue:
    ├── Reproducible → Continue debugging
@@ -107,8 +286,111 @@ Use this decision tree to systematically narrow down the source of issues:
    ├── Incorrect outputs → Compare with expected values
    ├── Performance degradation → Profile resource usage
    └── Silent failure → Add instrumentation & logging
-3. Data Pipeline Debugging
-3.1 Feature Loading and Preprocessing Issues
+```python
+import re
+import os
+
+def debug_test_failure(test_name, error_message):
+    """Guide debugging based on test failure type."""
+    print(f"\nDebugging test failure: {test_name}")
+    print(f"Error message:\n{'-'*20}\n{error_message}\n{'-'*20}")
+
+    # Categorize the error
+    error_type = "unknown"
+    # ... (Error categorization logic as provided before) ...
+    if "size mismatch" in error_message.lower() or "shape" in error_message.lower() or "dimension" in error_message.lower(): error_type = "shape_mismatch"
+    elif "cuda out of memory" in error_message.lower(): error_type = "memory_error"
+    elif "nan" in error_message.lower() or "inf" in error_message.lower(): error_type = "numerical_error"
+    elif "device" in error_message.lower() and ("cpu" in error_message.lower() or "cuda" in error_message.lower()): error_type = "device_error"
+    elif "modulenotfounderror" in error_message.lower() or "importerror" in error_message.lower(): error_type = "import_error"
+    elif "keyerror" in error_message.lower(): error_type = "key_error"
+    elif "filenotfounderror" in error_message.lower(): error_type = "file_not_found"
+    elif "assertionerror" in error_message.lower(): error_type = "assertion_failure"
+
+    print(f"Detected error type: {error_type}")
+
+    # Suggest debugging approaches based on error type
+    suggestions = []
+    if error_type == "shape_mismatch":
+        suggestions.extend([
+            "Locate the operation causing the mismatch in the stack trace.",
+            "Use inspect_tensor() on input tensors just before the failing operation.",
+            "Trace tensor shapes through the model using debug_shape_flow() if needed.",
+            "Verify related config parameters (embedding dims, heads, etc.).",
+            "Check padding/masking logic in collate_fn and model forward pass.",
+        ])
+        shapes = re.findall(r'size (\d+)', error_message)
+        if len(shapes) >= 2: suggestions.append(f"Mismatched dimensions found: {shapes[0]} vs {shapes[1]}. Check config params.")
+    elif error_type == "memory_error":
+        suggestions.extend([
+            "Run the test with a smaller batch size (e.g., 1).",
+            "Use profile_memory() before and after the failing operation.",
+            "Check for operations creating large intermediate tensors (e.g., N x N pair matrices).",
+            "Consider using gradient checkpointing if it occurs during backward pass.",
+            "Delete intermediate tensors explicitly (`del tensor`) and call `gc.collect()`, `torch.cuda.empty_cache()`."
+        ])
+    elif error_type == "numerical_error":
+        suggestions.extend([
+            "Enable torch.autograd.detect_anomaly().",
+            "Use inspect_tensor() on inputs and outputs of the failing operation/module.",
+            "If loss is NaN/Inf, use diagnose_nan_loss() or specific debug_loss_function().",
+            "Check for division by zero, log(0), sqrt(negative). Add epsilon where needed.",
+            "Check parameter initialization (analyze_parameter_initialization).",
+            "Reduce learning rate, check gradient norms (analyze_gradients)."
+        ])
+    elif error_type == "device_error":
+        suggestions.extend([
+            "Ensure all input tensors to an operation are on the same device.",
+            "Check model parameters are on the correct device (`model.to(device)`).",
+            "Ensure batch tensors (including mask, targets) are moved to device.",
+            "Verify tensor creation ops (`torch.zeros`, `torch.randn`) specify `device=...`."
+        ])
+    elif error_type == "key_error":
+        key = re.search(r"KeyError: '([^']+)'", error_message)
+        suggestions.append("Check dictionary contents (e.g., batch dict, config dict) before access.")
+        if key: suggestions.append(f"  - The key '{key.group(1)}' was expected but not found.")
+        suggestions.append("  - Verify spelling and case of keys.")
+    elif error_type == "file_not_found":
+        path = re.search(r"FileNotFoundError:.*? '([^']+)'", error_message)
+        suggestions.append("Verify the path exists relative to the execution context (e.g., inside Docker).")
+        if path: suggestions.append(f"  - The path '{path.group(1)}' could not be found.")
+        suggestions.append("  - Check path construction logic (use os.path.join).")
+        suggestions.append("  - Ensure path parameterization principle is followed.")
+    elif error_type == "assertion_failure":
+         suggestions.extend([
+             "Examine the specific test assertion that failed.",
+             "Check if the expected behavior matches implementation logic.",
+             "Verify calculation logic for expected values in the test.",
+             "Compare actual outputs against reference/expected values step-by-step."
+         ])
+    else:
+        suggestions.extend([
+            "Carefully read the full error message and stack trace.",
+            "Isolate the failing code in a minimal script.",
+            "Add print statements or use a debugger (like pdb or IDE debugger)."
+        ])
+
+    print("\nDebugging suggestions:")
+    for i, suggestion in enumerate(suggestions, 1):
+        print(f"{i}. {suggestion}")
+
+    # Extract file and line info if available
+    # Find the last match in the traceback which is likely the error origin
+    all_matches = re.findall(r'File "([^"]+)", line (\d+)', error_message)
+    if all_matches:
+         file_path, line_num = all_matches[-1]
+         print(f"\nError likely originates near: {file_path}:{line_num}")
+         # ... (Suggest relevant specific debug functions based on file_path) ...
+
+    print("\nNext steps:")
+    print("1. Run the specific failing test: `pytest -v -k test_function_name`")
+    print("2. Add print statements or use `inspect_tensor` around the error location.")
+    print("3. Create a minimal example script outside pytest if needed.")
+```
+    
+## 3. Data Pipeline Debugging
+
+### 3.1 Feature Loading and Preprocessing Issues
 Common issues in the data loading pipeline include:
     1. Missing or Corrupted Feature Files: 
 def verify_feature_files(target_id, features_dir):
@@ -190,7 +472,8 @@ def diagnose_nan_values(dataset_path, features_dir):
                     print(f"Found {nan_count} NaN values in {target_id}.{key}")
     
     return nan_counts
-3.2 Batch Processing and Collation Problems
+    
+### 3.2 Batch Processing and Collation Problems
 Issues often arise during batch creation and collation:
     1. Testing Collation Function: 
 def test_collate_function(dataset, batch_size=2):
@@ -261,7 +544,7 @@ def verify_padding(batch):
     
     print("Padding verification passed")
     return True
-3.3 Input Validation and Sanitization Strategies
+### 3.3 Input Validation and Sanitization Strategies
 Proactive data validation prevents downstream errors:
 def validate_data_pipeline(sequences_csv_path, labels_csv_path, features_dir, batch_size=4):
     """End-to-end validation of the data pipeline."""
@@ -345,8 +628,19 @@ def validate_data_pipeline(sequences_csv_path, labels_csv_path, features_dir, ba
     
     print("Data pipeline validation completed successfully")
     return True
-4. Model Architecture Debugging
-4.1 Component-Level Debugging
+    
+**Key Debugging Steps:**
+
+1.  **Check Paths:** Ensure paths passed to `RNADataset` and helpers are correct within the Docker environment's mount points.
+2.  **Verify Files:** Use `verify_feature_files` for a specific problematic `target_id`. Check file contents manually (`np.load(...)`).
+3.  **Inspect Sample:** Add `inspect_tensor` calls within `RNADataset.__getitem__` for feature tensors right after loading and before returning. Check for NaNs using `diagnose_nan_values`.
+4.  **Test Collation:** Use `test_collate_function` with a list of samples, including ones causing issues, to check padding and masking. Use `verify_padding` on the output batch.
+5.  **End-to-End Check:** Run `validate_data_pipeline` with the relevant CSV paths and feature directory.
+
+
+## 4. Model Architecture Debugging
+
+### 4.1 Component-Level Debugging
 Our modular architecture requires systematic component-level validation:
 def debug_component(component, sample_input, expected_output=None):
     """Debug a single model component with sample input."""
@@ -452,7 +746,7 @@ def debug_transformer_block(config, seq_len=10, batch_size=2):
         
         # Verify masking was applied correctly
         assert torch.all(res_out[0, -2:] == 0), "Masking not applied correctly to residue output"
-4.2 Shape Mismatch and Tensor Dimension Problems
+### 4.2 Shape Mismatch and Tensor Dimension Problems
 Shape issues are among the most common bugs in deep learning pipelines:
 def debug_shape_flow(model, batch):
     """Trace tensor shapes through the model to identify mismatches."""
@@ -513,7 +807,7 @@ Shape Error detected → Check:
 ├── Wrong dimension order? → Use permute() or transpose()
 ├── Inconsistent sequence lengths? → Debug collate_fn padding
 └── Mask incorrectly applied? → Verify mask broadcasting
-4.3 Parameter Initialization Issues
+### 4.3 Parameter Initialization Issues
 Improper initialization can lead to training instability:
 def analyze_parameter_initialization(model):
     """Analyze parameter initialization statistics for each module."""
@@ -556,7 +850,7 @@ def analyze_parameter_initialization(model):
             if issues:
                 print(f"  ISSUES DETECTED: {', '.join(issues)}")
             print("")
-4.4 Forward/Backward Pass Debugging
+### 4.4 Forward/Backward Pass Debugging
 Diagnose issues in the computational graph:
 def debug_forward_backward(model, batch, compute_loss=None):
     """Debug forward and backward passes with gradient flow visualization."""
@@ -637,8 +931,153 @@ def debug_forward_backward(model, batch, compute_loss=None):
             import traceback
             traceback.print_exc()
             return None, None
-5. Loss Function Debugging
-5.1 Numerical Stability Issues
+            
+
+
+**Key Debugging Steps:**
+
+1.  **Initialization:** Use `analyze_parameter_initialization` after `model = RNAFoldingModel(config)` to check weights.
+2.  **Component Isolation:** Use `debug_component` on individual layers (`SequenceEmbedding`, `TransformerBlock`, `IPAModule`) with controlled inputs to verify their internal logic.
+3.  **Shape Tracing:** If shape errors occur during the full model forward pass, use `debug_shape_flow(model, batch)` to pinpoint where dimensions change unexpectedly. Use `inspect_tensor` liberally inside the `forward` methods of components.
+4.  **Forward/Backward Graph:** Use `debug_forward_backward(model, batch, compute_combined_loss)` to ensure the entire graph connects and gradients can be computed. Check the gradient analysis output.
+
+## 5. Loss Function Debugging
+### 5.1 Numerical Stability Issues
+
+Use `detect_and_handle_nan_loss` in the training loop for immediate detection and skipping faulty steps. For deeper diagnosis, use `diagnose_nan_loss`.
+
+```python
+# In training loop:
+# ... forward pass ...
+# total_loss, loss_components_tensors = compute_combined_loss(...)
+# skip_step, safe_loss = detect_and_handle_nan_loss(
+#     total_loss, loss_components_tensors, model, optimizer, batch
+# )
+# if skip_step: continue # Skip optimizer step
+# safe_loss.backward()
+# ...
+
+# For detailed diagnosis outside the loop:
+# diagnose_nan_loss(model, compute_combined_loss, specific_batch_causing_nan)
+# debug_specific_loss('fape', model, specific_batch_causing_nan) # Focus on FAPE
+
+def detect_and_handle_nan_loss(
+    loss: torch.Tensor,
+    loss_components: Dict[str, torch.Tensor],
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    batch: Dict[str, Any]
+) -> Tuple[bool, torch.Tensor]:
+    """Detect NaN/Inf in loss values and respond, returning whether to skip step."""
+    skip_step = False
+    safe_loss = loss # Start with original loss
+
+    if not torch.isfinite(loss).all(): # Checks for NaN and Inf
+        logging.warning(f"NaN or Inf detected in total loss: {loss.item()}! Target IDs: {batch.get('target_ids', 'N/A')}")
+        skip_step = True
+
+        # Identify problematic components
+        for name, comp_loss in loss_components.items():
+            if not torch.isfinite(comp_loss).all():
+                 logging.warning(f"  Component '{name}' has NaN/Inf: {comp_loss.item()}")
+
+        # Check parameters and gradients for NaNs/Infs (if grads exist)
+        for name, param in model.named_parameters():
+             if param.grad is not None and not torch.isfinite(param.grad).all():
+                 logging.warning(f"  NaN/Inf gradient detected in parameter: {name}")
+             if not torch.isfinite(param.data).all():
+                 logging.warning(f"  NaN/Inf value detected in parameter: {name}")
+
+        # Strategy: Skip the update for this batch
+        logging.warning("Skipping optimizer step due to NaN/Inf loss.")
+        optimizer.zero_grad(set_to_none=True) # Zero gradients to prevent propagation, set_to_none saves memory
+        # Return a zero tensor for the loss to avoid errors downstream if loss is used after backward
+        safe_loss = torch.tensor(0.0, device=loss.device, dtype=loss.dtype, requires_grad=False)
+
+    return skip_step, safe_loss
+
+def diagnose_nan_loss(model, loss_fn, batch, epsilon=1e-10):
+    """Diagnose NaN loss by checking intermediate values (Detailed check)."""
+    print("\n--- Running NaN Loss Diagnosis ---")
+    inputs_ok = True
+    # Check batch inputs first
+    print("Checking Batch Inputs:")
+    for key, value in batch.items():
+         if isinstance(value, torch.Tensor):
+              if not torch.isfinite(value).all():
+                   logging.error(f"NaN/Inf detected in input batch tensor: {key}")
+                   inspect_tensor(value, f"Input Batch['{key}']")
+                   inputs_ok = False
+
+    if not inputs_ok:
+        print("NaN/Inf detected in inputs, aborting further diagnosis.")
+        return None
+
+    # Check model outputs
+    print("\nChecking Model Outputs:")
+    try:
+        with torch.no_grad(): # Check outputs without affecting subsequent grad calcs
+             outputs = model(batch)
+        for key, value in outputs.items():
+             if isinstance(value, torch.Tensor):
+                  if not torch.isfinite(value).all():
+                       logging.error(f"NaN/Inf detected in model output: {key}")
+                       inspect_tensor(value, f"Model Output['{key}']")
+                       inputs_ok = False
+    except Exception as e:
+        logging.error(f"Error during model forward pass in NaN diagnosis: {e}")
+        return None
+
+    if not inputs_ok:
+        print("NaN/Inf detected in model outputs, aborting loss calculation.")
+        return None
+
+    # Check loss calculation
+    print("\nChecking Loss Calculation:")
+    try:
+         loss = loss_fn(outputs, batch) # Assumes loss_fn computes total loss
+         if not torch.isfinite(loss).all():
+              logging.error(f"NaN/Inf detected in final loss value: {loss.item()}")
+              print("Investigating loss components (if applicable)...")
+              # Add calls to specific debug_loss_function here if loss_fn returns components
+              # e.g., debug_specific_loss('fape', model, batch)
+         else:
+              print(f"Loss calculated successfully: {loss.item():.6f}")
+         return loss
+    except Exception as e:
+         logging.error(f"Error during loss calculation in NaN diagnosis: {e}")
+         import traceback
+         traceback.print_exc()
+         return None
+
+def debug_specific_loss(loss_name, model, batch):
+    """Run detailed debug routine for a specific loss component."""
+    from src.losses import compute_stable_fape_loss, compute_confidence_loss, compute_angle_loss # Ensure import
+    outputs = model(batch)
+    print(f"\n--- Debugging Loss Component: {loss_name} ---")
+    loss_fn_map = {
+        'fape': lambda o, b: compute_stable_fape_loss(o['pred_coords'], b['coordinates'], b['mask']),
+        'confidence': lambda o, b: compute_confidence_loss(o['pred_confidence'], o['pred_coords'], b['coordinates'], b['mask']),
+        'angle': lambda o, b: compute_angle_loss(o['pred_angles'], b['dihedral_features'], b['mask'])
+    }
+    if loss_name in loss_fn_map:
+         loss_fn = loss_fn_map[loss_name]
+         # TODO: Implement detailed debuggers for each loss type here if needed
+         # For now, just compute and inspect
+         try:
+              loss = loss_fn(outputs, batch)
+              print(f"{loss_name} loss value:")
+              inspect_tensor(loss, loss_name)
+              if not torch.isfinite(loss).all():
+                   print(f"ERROR: NaN/Inf detected in {loss_name} loss.")
+                   # Add more detailed checks specific to the loss function here
+                   # e.g., check distances in FAPE, targets in confidence loss etc.
+         except Exception as e:
+              print(f"ERROR computing {loss_name} loss: {e}")
+    else:
+        print(f"No specific debugger or function found for loss component: {loss_name}")
+
+```
 Loss functions are particularly susceptible to numerical instability:
 def debug_loss_function(loss_fn, outputs, batch, epsilon=1e-10):
     """Debug loss function for numerical stability issues."""
@@ -720,7 +1159,17 @@ def debug_loss_function(loss_fn, outputs, batch, epsilon=1e-10):
             import traceback
             traceback.print_exc()
             return None
-5.2 Gradient Flow Problems
+### 5.2 Gradient Flow Problems
+
+Use `analyze_gradients`, `log_gradient_issues`, and `adaptive_gradient_handling`.
+
+```python
+# After loss.backward()
+# grad_stats = analyze_gradients(model)
+# issues_found = log_gradient_issues(grad_stats)
+# adaptive_gradient_handling(model, clip_norm=1.0) # Apply clipping
+```
+
 Diagnose where gradients are breaking down:
 def analyze_loss_gradients(model, loss_fn, batch):
     """Analyze gradient flow from different loss components."""
@@ -806,7 +1255,7 @@ def analyze_loss_gradients(model, loss_fn, batch):
         with torch.no_grad():
             for name, param in model.named_parameters():
                 param.copy_(orig_params[name])
-5.3 Loss Scaling and Weighting Issues
+### 5.3 Loss Scaling and Weighting Issues
 Diagnose problems with multi-component loss functions:
 def debug_loss_weighting(model, loss_weights, batch, epochs=5):
     """Debug loss weighting by simulating training with different weights."""
@@ -877,7 +1326,7 @@ def debug_loss_weighting(model, loss_weights, batch, epochs=5):
     model.load_state_dict(orig_model.state_dict())
     
     return loss_history
-5.4 NaN/Infinity Detection
+### 5.4 NaN/Infinity Detection
 Focused debugging for numerical instability in loss functions:
 def diagnose_nan_loss(model, loss_fn, batch, epsilon=1e-10):
     """Diagnose NaN loss by checking intermediate values."""
@@ -1011,8 +1460,8 @@ def diagnose_nan_loss(model, loss_fn, batch, epsilon=1e-10):
         import traceback
         traceback.print_exc()
         return None, intermediate_tensors
-6. Performance Debugging
-6.1 Memory Profiling and Optimization
+# 6. Performance Debugging
+### 6.1 Memory Profiling and Optimization
 Diagnose and resolve GPU memory issues:
 def profile_memory_usage(model, dataloader, disable_grad=True):
     """Profile memory usage during model execution."""
@@ -1119,7 +1568,8 @@ Out-of-memory error detected → Try:
     ├── Re-implement with manual memory management
     ├── Offload tensors to CPU selectively
     └── Process data in smaller chunks
-6.2 GPU Utilization and Bottleneck Identification
+
+## 6.2 GPU Utilization and Bottleneck Identification
 Diagnose performance bottlenecks:
 def profile_execution_time(model, dataloader, loss_fn=None, n_batches=3):
     """Profile execution time for model components."""
@@ -1273,7 +1723,7 @@ def profile_execution_time(model, dataloader, loss_fn=None, n_batches=3):
         # Remove hooks
         for hook in hooks:
             hook.remove()
-6.3 Computational Efficiency Improvements
+### 6.3 Computational Efficiency Improvements
 Optimize critical operations for performance:
 def suggest_performance_optimizations(model, batch):
     """Analyze model for potential performance optimizations."""
@@ -1391,7 +1841,7 @@ def suggest_performance_optimizations(model, batch):
         # Remove hooks
         for hook in hooks:
             hook.remove()
-6.4 Batch Size Optimization
+### 6.4 Batch Size Optimization
 Find the optimal batch size for training:
 def optimize_batch_size(model, dataset, start_size=1, max_size=32, step=1):
     """Find the optimal batch size for memory usage and performance."""
@@ -1511,12 +1961,23 @@ def optimize_batch_size(model, dataset, start_size=1, max_size=32, step=1):
         print("No successful batch size found. Try reducing model size or optimization.")
     
     return results
-7. Debugging Case Studies
-7.1 Case Study: Shape Mismatch in the Transformer Block
+# 7. Debugging Case Studies
+### 7.1 Case Study: Shape Mismatch in the Transformer Block
 """
 Problem: RuntimeError: The size of tensor a (128) must match the size of tensor b (64) at non-singleton dimension 2
 Location: TransformerBlock._update_pair_repr method
 """
+
+```python
+# Diagnostic approach for Shape Mismatch:
+# ... (isolate transformer block) ...
+# shapes = debug_shape_flow(model, batch) # Use shape tracer
+# ... (analyze shapes dict) ...
+# print("\nInspecting inputs to the failing operation using inspect_tensor:")
+# inspect_tensor(tensor_a, "Tensor A")
+# inspect_tensor(tensor_b, "Tensor B")
+# ... (suggest fixes) ...
+```
 
 # Diagnostic approach:
 def debug_transformer_shape_mismatch(model, batch):
@@ -1620,11 +2081,23 @@ def debug_transformer_shape_mismatch(model, batch):
     print("  3. Verify the pair input calculation: 2 * self.residue_dim + self.pair_dim")
     
     return shapes
-7.2 Case Study: NaN Loss in FAPE Calculation
+    
+
+### 7.2 Case Study: NaN Loss in FAPE Calculation
 """
 Problem: Loss becomes NaN after a few iterations of training
 Location: compute_fape_loss function in src/losses.py
 """
+```python
+# Diagnostic approach for NaN Loss:
+# diagnose_nan_loss(model, compute_combined_loss, batch_causing_nan) # Overall check
+# debug_specific_loss('fape', model, batch_causing_nan) # Detailed FAPE check
+# Enable detect_anomaly:
+# with torch.autograd.detect_anomaly():
+#    loss = compute_combined_loss(...)
+#    loss.backward()
+# ... (suggest fixes) ...
+```
 
 # Diagnostic approach:
 def debug_nan_fape_loss(batch, detailed=True):
@@ -1783,8 +2256,9 @@ def debug_nan_fape_loss(batch, detailed=True):
         print(f"Error during loss tracing: {e}")
         import traceback
         traceback.print_exc()
-8. Integration with Testing Workflow
-8.1 Using Test Failures to Guide Debugging
+        
+# 8. Integration with Testing Workflow
+## 8.1 Using Test Failures to Guide Debugging
 Connect testing and debugging workflows:
 def debug_test_failure(test_name, error_message):
     """Guide debugging based on test failure type."""
@@ -1897,7 +2371,7 @@ def debug_test_failure(test_name, error_message):
             print("Consider using validate_data_pipeline() for detailed inspection")
         elif "ipa_module" in file_path.lower():
             print("Consider using debug_component() with the IPAModule for detailed inspection")
-8.2 Regression Testing After Fixes
+## 8.2 Regression Testing After Fixes
 Verify that fixes don't introduce new issues:
 def run_regression_tests(module_name, component=None):
     """Run regression tests to ensure fixes don't break other functionality."""
@@ -1939,7 +2413,7 @@ def run_regression_tests(module_name, component=None):
     else:
         print("\nAll tests passed successfully!")
         return True
-8.3 Creating Test Cases from Discovered Bugs
+## 8.3 Creating Test Cases from Discovered Bugs
 Institutionalize knowledge from debugging:
 def create_test_case_for_bug(bug_details, output_file=None):
     """Generate a test case template based on bug details."""
@@ -2022,7 +2496,7 @@ class Test{bug_component}Regression:
     print("4. Add the test to the test suite to prevent regression")
     
     return test_code
-Conclusion
+## 9.Conclusion
 This debugging workflow provides a comprehensive framework for identifying, diagnosing, and resolving issues across the RNA 3D folding pipeline. By following these systematic approaches, developers can efficiently troubleshoot problems in data loading, model architecture, loss functions, and performance.
 Remember that debugging is as much art as science, requiring both rigorous methodology and creative problem-solving. Always start with isolation, proceed with evidence-based investigation, and validate your solutions thoroughly.
 When encountering new issues, contribute your discoveries and solutions back to this guide, helping build a collective knowledge base that makes the RNA 3D folding pipeline more robust and maintainable over time.
