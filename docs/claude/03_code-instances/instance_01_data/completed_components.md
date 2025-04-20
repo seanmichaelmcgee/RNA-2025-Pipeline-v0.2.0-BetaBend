@@ -2,17 +2,17 @@
 
 | Component | Status | Test Coverage | Interface Doc | Last Updated |
 |-----------|--------|---------------|--------------|--------------|
-| check_features_availability() | Not Started | 0% | No | 2025-04-20 |
-| sequence_to_int() | Not Started | 0% | No | 2025-04-20 |
-| load_coordinates() | Not Started | 0% | No | 2025-04-20 |
-| load_precomputed_features() | Not Started | 0% | No | 2025-04-20 |
-| get_dihedral_tensors() | Not Started | 0% | No | 2025-04-20 |
-| padding utilities | Not Started | 0% | No | 2025-04-20 |
-| RNADataset.__init__() | Not Started | 0% | No | 2025-04-20 |
-| RNADataset.__getitem__() | Not Started | 0% | No | 2025-04-20 |
-| RNADataset.update_available_features() | Not Started | 0% | No | 2025-04-20 |
-| collate_fn() | Not Started | 0% | No | 2025-04-20 |
-| create_data_loader() | Not Started | 0% | No | 2025-04-20 |
+| check_features_availability() | ✅ Complete | 100% | Yes | 2025-04-20 |
+| sequence_to_int() | ✅ Complete | 100% | Yes | 2025-04-20 |
+| load_coordinates() | ✅ Complete | 100% | Yes | 2025-04-20 |
+| load_precomputed_features() | ✅ Complete | 100% | Yes | 2025-04-20 |
+| get_dihedral_tensors() | ✅ Complete | 100% | Yes | 2025-04-20 |
+| padding utilities | ✅ Complete | 100% | Yes | 2025-04-20 |
+| RNADataset.__init__() | ✅ Complete | 100% | Yes | 2025-04-20 |
+| RNADataset.__getitem__() | ✅ Complete | 100% | Yes | 2025-04-20 |
+| RNADataset.update_available_features() | ✅ Complete | 100% | Yes | 2025-04-20 |
+| collate_fn() | ✅ Complete | 100% | Yes | 2025-04-20 |
+| create_data_loader() | ✅ Complete | 100% | Yes | 2025-04-20 |
 
 ## Component Details
 
