@@ -1,6 +1,6 @@
-# Data Loading Testing Guide
+# Data Loading Testing Guide with MI Matrix Validation
 
-This guide outlines the testing approach for the data loading component (`src/data_loading.py`). It covers unit tests, integration tests, and common test cases to ensure the component functions correctly and handles edge cases properly.
+This guide outlines the testing approach for the data loading component (`src/data_loading.py`) with a special focus on the new uniform MI matrix detection and handling. It covers unit tests, integration tests, and common test cases to ensure the component functions correctly and properly identifies invalid evolutionary information.
 
 ## Test Structure
 
@@ -50,7 +50,55 @@ def test_load_coordinates():
         load_coordinates(labels_df, 'test3')
 ```
 
-### 1.2 Test `load_precomputed_features`
+### 1.2 Test `is_uniform_mi_matrix`
+
+```python
+def test_is_uniform_mi_matrix():
+    """Test detection of uniform MI matrices."""
+    # Case 1: Perfect uniform matrix (same value everywhere except diagonal)
+    size = 5
+    perfect_uniform = np.ones((size, size)) * 0.5
+    np.fill_diagonal(perfect_uniform, 0)  # Zero diagonal
+    assert is_uniform_mi_matrix(perfect_uniform)
+
+    # Case 2: Nearly uniform matrix (tiny variations within epsilon)
+    nearly_uniform = np.ones((size, size)) * 0.5
+    np.fill_diagonal(nearly_uniform, 0)
+    # Add tiny noise below epsilon threshold
+    noise = np.random.rand(size, size) * 1e-7
+    nearly_uniform += noise
+    assert is_uniform_mi_matrix(nearly_uniform)
+
+    # Case 3: Non-uniform matrix (variations above epsilon)
+    non_uniform = np.random.rand(size, size)
+    np.fill_diagonal(non_uniform, 0)
+    assert not is_uniform_mi_matrix(non_uniform)
+
+    # Case 4: Empty matrix
+    empty_matrix = np.array([]).reshape(0, 0)
+    assert not is_uniform_mi_matrix(empty_matrix)
+
+    # Case 5: 1x1 matrix (edge case)
+    singleton = np.array([[0]])
+    assert not is_uniform_mi_matrix(singleton)
+
+    # Case 6: 2x2 matrix with single off-diagonal pair
+    tiny_matrix = np.array([[0, 0.5], [0.5, 0]])
+    assert not is_uniform_mi_matrix(tiny_matrix)
+
+    # Case 7: Test with different epsilon values
+    borderline = np.ones((size, size)) * 0.5
+    np.fill_diagonal(borderline, 0)
+    # Add larger noise around 1e-5
+    noise = np.random.rand(size, size) * 2e-5
+    borderline += noise
+    # Should be uniform with default epsilon (1e-6)
+    assert not is_uniform_mi_matrix(borderline)
+    # Should be uniform with larger epsilon
+    assert is_uniform_mi_matrix(borderline, epsilon=1e-4)
+```
+
+### 1.3 Test `load_precomputed_features`
 
 For thorough testing, we need to mock the file loading with controlled test data:
 
@@ -83,17 +131,27 @@ def mock_feature_data():
         'sequence': 'GACUG'
     }
     
-    # Mock evolutionary features
+    # Mock evolutionary features (varied/informative)
     evolutionary_features = {
         'coupling_matrix': np.random.rand(seq_len, seq_len).astype(np.float32),
         'conservation': np.random.rand(seq_len).astype(np.float32),
         'sequence_count': 100
     }
     
+    # Mock uniform/uninformative MI matrix
+    uniform_mi_features = {
+        'coupling_matrix': np.ones((seq_len, seq_len)).astype(np.float32) * 0.5,
+        'conservation': np.random.rand(seq_len).astype(np.float32),
+        'sequence_count': 1  # Single sequence
+    }
+    # Zero diagonal as typically found in MI matrices
+    np.fill_diagonal(uniform_mi_features['coupling_matrix'], 0)
+    
     return {
         'dihedral': dihedral_features,
         'thermo': thermo_features,
-        'evolutionary': evolutionary_features
+        'evolutionary': evolutionary_features,
+        'uniform_mi': uniform_mi_features
     }
 
 def test_load_precomputed_features(mock_feature_data, tmp_path):
@@ -122,7 +180,7 @@ def test_load_precomputed_features(mock_feature_data, tmp_path):
     np.savez(thermo_path, **mock_feature_data['thermo'])
     
     # Save evolutionary features
-    mi_path = mi_dir / f"{target_id}_features.npz"
+    mi_path = mi_dir / f"{target_id}_mi_features.npz"
     np.savez(mi_path, **mock_feature_data['evolutionary'])
     
     # Test loading all features
@@ -146,10 +204,37 @@ def test_load_precomputed_features(mock_feature_data, tmp_path):
     # Check evolutionary features
     assert 'coupling_matrix' in features['evolutionary']
     assert features['evolutionary']['coupling_matrix'].shape == (5, 5)
-    assert 'conservation' in features['evolutionary']
+    assert 'has_valid_mi' in features['evolutionary']
+    assert features['evolutionary']['has_valid_mi'] == True
+    
+    # Now test with uniform MI matrix
+    # Create a different target with uniform MI
+    target_id2 = "test2"
+    
+    # Save dihedral and thermo features
+    dihedral_path = dihedral_dir / f"{target_id2}_dihedral_features.npz"
+    np.savez(dihedral_path, **mock_feature_data['dihedral'])
+    thermo_path = thermo_dir / f"{target_id2}_thermo_features.npz"
+    np.savez(thermo_path, **mock_feature_data['thermo'])
+    
+    # Save uniform MI data
+    mi_path = mi_dir / f"{target_id2}_mi_features.npz"
+    np.savez(mi_path, **mock_feature_data['uniform_mi'])
+    
+    # Test loading with uniform MI
+    features2 = load_precomputed_features(target_id2, str(features_dir))
+    
+    # Verify uniform MI detection
+    assert 'evolutionary' in features2
+    assert 'coupling_matrix' in features2['evolutionary']
+    assert 'has_valid_mi' in features2['evolutionary']
+    assert features2['evolutionary']['has_valid_mi'] == False
+    
+    # Check that coupling matrix was zeroed out
+    assert np.all(features2['evolutionary']['coupling_matrix'] == 0)
 ```
 
-### 1.3 Test Missing Feature Handling
+### 1.4 Test Missing Feature Handling
 
 ```python
 def test_missing_features_handling(mock_feature_data, tmp_path):
@@ -176,6 +261,8 @@ def test_missing_features_handling(mock_feature_data, tmp_path):
     assert features['evolutionary'] is not None
     assert features['evolutionary']['coupling_matrix'].shape == (5, 5)
     assert np.all(features['evolutionary']['coupling_matrix'] == 0)  # Should be zeros
+    assert 'has_valid_mi' in features['evolutionary']
+    assert features['evolutionary']['has_valid_mi'] == False
     
     # Test missing thermodynamic features (required)
     with pytest.raises(ValueError):
@@ -262,15 +349,15 @@ def test_dataset_initialization(mock_read_csv, mock_load_coords,
     assert len(dataset_val) == 4
 ```
 
-### 2.2 Test `__getitem__`
+### 2.2 Test `__getitem__` with MI Matrix Handling
 
 ```python
 @patch('src.data_loading.load_precomputed_features')
 @patch('src.data_loading.load_coordinates')
 @patch('pandas.read_csv')
-def test_dataset_getitem(mock_read_csv, mock_load_coords, mock_load_features,
-                         mock_sequences_df, mock_labels_df, mock_feature_data):
-    """Test RNADataset __getitem__ method."""
+def test_dataset_getitem_mi_handling(mock_read_csv, mock_load_coords, mock_load_features,
+                         mock_sequences_df, mock_labels_df):
+    """Test RNADataset __getitem__ method with different MI matrix cases."""
     # Mock read_csv to return our test data
     mock_read_csv.side_effect = lambda path: (
         mock_sequences_df if 'sequences' in path else mock_labels_df
@@ -279,9 +366,6 @@ def test_dataset_getitem(mock_read_csv, mock_load_coords, mock_load_features,
     # Mock coordinates loading
     mock_load_coords.return_value = (np.ones((5, 3)), ['G', 'A', 'C', 'U', 'G'])
     
-    # Mock feature loading
-    mock_load_features.return_value = mock_feature_data
-    
     # Create dataset
     dataset = RNADataset(
         sequences_csv_path='dummy/sequences.csv',
@@ -289,110 +373,280 @@ def test_dataset_getitem(mock_read_csv, mock_load_coords, mock_load_features,
         features_dir='dummy/features'
     )
     
-    # Get an item
-    sample = dataset[0]
+    # Set filtered sequences explicitly for testing
+    dataset.filtered_sequences = mock_sequences_df['target_id'].tolist()
     
-    # Verify the sample structure
-    assert sample['target_id'] == 'seq1'
-    assert isinstance(sample['sequence_int'], torch.Tensor)
-    assert sample['sequence_int'].shape == (5,)
-    assert sample['sequence_int'].dtype == torch.long
-    
-    assert isinstance(sample['dihedral_features'], torch.Tensor)
-    assert sample['dihedral_features'].shape == (5, 4)
-    assert sample['dihedral_features'].dtype == torch.float32
-    
-    assert isinstance(sample['pairing_probs'], torch.Tensor)
-    assert sample['pairing_probs'].shape == (5, 5)
-    
-    assert isinstance(sample['positional_entropy'], torch.Tensor)
-    assert sample['positional_entropy'].shape == (5,)
-    
-    assert isinstance(sample['coupling_matrix'], torch.Tensor)
-    assert sample['coupling_matrix'].shape == (5, 5)
-    
-    assert isinstance(sample['coordinates'], torch.Tensor)
-    assert sample['coordinates'].shape == (5, 3)
-    
-    assert sample['length'] == 5
-    
-    # Test with missing features
-    mock_feature_data_missing = {
-        'dihedral': None,
-        'thermo': mock_feature_data['thermo'],
-        'evolutionary': None
+    # Test with valid MI matrix
+    # Create feature data with valid MI matrix
+    feature_data_valid_mi = {
+        'dihedral': {
+            'features': np.random.rand(5, 4).astype(np.float32),
+        },
+        'thermo': {
+            'pairing_probs': np.random.rand(5, 5).astype(np.float32),
+            'positional_entropy': np.random.rand(5).astype(np.float32),
+            'accessibility': np.random.rand(5).astype(np.float32),
+            'mfe': -10.5,
+        },
+        'evolutionary': {
+            'coupling_matrix': np.random.rand(5, 5).astype(np.float32),
+            'conservation': np.random.rand(5).astype(np.float32),
+            'has_valid_mi': True
+        }
     }
-    mock_load_features.return_value = mock_feature_data_missing
     
-    # Get item with missing features
+    # Mock for first test
+    mock_load_features.return_value = feature_data_valid_mi
+    
+    # Get item with valid MI
     sample = dataset[0]
     
-    # Verify default tensors are created
-    assert isinstance(sample['dihedral_features'], torch.Tensor)
-    assert sample['dihedral_features'].shape == (5, 4)
-    assert torch.all(sample['dihedral_features'] == 0)
+    # Verify metadata flags
+    assert 'meta' in sample
+    assert 'has_dihedrals' in sample['meta']
+    assert 'has_msa' in sample['meta']
+    assert sample['meta']['has_dihedrals'] == True
+    assert sample['meta']['has_msa'] == True
     
-    assert isinstance(sample['coupling_matrix'], torch.Tensor)
-    assert sample['coupling_matrix'].shape == (5, 5)
+    # Test with uniform/invalid MI matrix
+    # Create feature data with uniform MI matrix (detected as invalid)
+    feature_data_invalid_mi = {
+        'dihedral': {
+            'features': np.random.rand(5, 4).astype(np.float32),
+        },
+        'thermo': {
+            'pairing_probs': np.random.rand(5, 5).astype(np.float32),
+            'positional_entropy': np.random.rand(5).astype(np.float32),
+        },
+        'evolutionary': {
+            'coupling_matrix': np.zeros((5, 5)).astype(np.float32),  # Zero matrix
+            'conservation': np.random.rand(5).astype(np.float32),
+            'has_valid_mi': False  # Marked as invalid
+        }
+    }
+    
+    # Mock for second test
+    mock_load_features.return_value = feature_data_invalid_mi
+    
+    # Get item with invalid MI
+    sample = dataset[0]
+    
+    # Verify metadata flags
+    assert 'meta' in sample
+    assert 'has_msa' in sample['meta']
+    assert sample['meta']['has_msa'] == False  # Should be False despite having feature file
+    
+    # Verify coupling matrix exists but is zeros
+    assert 'coupling_matrix' in sample
     assert torch.all(sample['coupling_matrix'] == 0)
+    
+    # Test with missing evolutionary features
+    # Create feature data with missing MI
+    feature_data_missing_mi = {
+        'dihedral': {
+            'features': np.random.rand(5, 4).astype(np.float32),
+        },
+        'thermo': {
+            'pairing_probs': np.random.rand(5, 5).astype(np.float32),
+            'positional_entropy': np.random.rand(5).astype(np.float32),
+        },
+        'evolutionary': {
+            'coupling_matrix': np.zeros((5, 5)).astype(np.float32),  # Default zeros
+            'has_valid_mi': False  # Marked as invalid because missing
+        }
+    }
+    
+    # Mock for third test
+    mock_load_features.return_value = feature_data_missing_mi
+    
+    # Get item with missing MI
+    sample = dataset[0]
+    
+    # Verify metadata flags
+    assert 'meta' in sample
+    assert 'has_msa' in sample['meta']
+    assert sample['meta']['has_msa'] == False
+```
+
+### 2.3 Test Feature Availability and Update Mechanism
+
+```python
+def test_feature_availability_and_update(mock_sequences_df, tmp_path):
+    """Test detection of available features and update mechanism."""
+    # Set up directory structure
+    features_dir = tmp_path / "features"
+    features_dir.mkdir()
+    
+    thermo_dir = features_dir / "thermo_features"
+    mi_dir = features_dir / "mi_features"
+    dihedral_dir = features_dir / "dihedral_features"
+    
+    thermo_dir.mkdir()
+    mi_dir.mkdir()
+    dihedral_dir.mkdir()
+    
+    # Save sequences CSV
+    sequences_csv = tmp_path / "sequences.csv"
+    mock_sequences_df.to_csv(sequences_csv, index=False)
+    
+    # Initially create only some features
+    # Create thermo features (required) for all sequences
+    for i, target_id in enumerate(mock_sequences_df['target_id']):
+        # Create minimal thermo data
+        thermo_data = {
+            'pairing_probs': np.random.rand(5, 5).astype(np.float32),
+            'positional_entropy': np.random.rand(5).astype(np.float32)
+        }
+        thermo_path = thermo_dir / f"{target_id}_thermo_features.npz"
+        np.savez(thermo_path, **thermo_data)
+        
+        # Create dihedral features for first two sequences only
+        if i < 2:
+            dihedral_data = {
+                'features': np.random.rand(5, 4).astype(np.float32)
+            }
+            dihedral_path = dihedral_dir / f"{target_id}_dihedral_features.npz"
+            np.savez(dihedral_path, **dihedral_data)
+        
+        # Create MI features with different properties:
+        # seq1: valid MI
+        # seq2: uniform/invalid MI
+        # seq3: missing MI
+        # seq4: missing MI (will be added later)
+        if i == 0:  # Valid MI for seq1
+            mi_data = {
+                'coupling_matrix': np.random.rand(5, 5).astype(np.float32),
+                'conservation': np.random.rand(5).astype(np.float32)
+            }
+            mi_path = mi_dir / f"{target_id}_mi_features.npz"
+            np.savez(mi_path, **mi_data)
+        elif i == 1:  # Uniform MI for seq2
+            # Create uniform MI matrix
+            mi_data = {
+                'coupling_matrix': np.ones((5, 5)) * 0.5,
+                'conservation': np.random.rand(5).astype(np.float32)
+            }
+            np.fill_diagonal(mi_data['coupling_matrix'], 0)  # Zero diagonal
+            mi_path = mi_dir / f"{target_id}_mi_features.npz"
+            np.savez(mi_path, **mi_data)
+    
+    # Create dataset requiring features
+    dataset = RNADataset(
+        sequences_csv_path=str(sequences_csv),
+        features_dir=str(features_dir),
+        require_features=True
+    )
+    
+    # Should have all 4 sequences since all have thermo features
+    assert len(dataset) == 4
+    
+    # Check metadata for each sequence
+    sample0 = dataset[0]  # seq1 - should have valid MI
+    assert sample0['meta']['has_dihedrals'] == True
+    assert sample0['meta']['has_msa'] == True
+    
+    sample1 = dataset[1]  # seq2 - should have invalid MI
+    assert sample1['meta']['has_dihedrals'] == True
+    assert sample1['meta']['has_msa'] == False
+    
+    sample2 = dataset[2]  # seq3 - should have no MI
+    assert sample2['meta']['has_dihedrals'] == False
+    assert sample2['meta']['has_msa'] == False
+    
+    # Now add MI features for seq4
+    target_id = mock_sequences_df['target_id'][3]  # seq4
+    mi_data = {
+        'coupling_matrix': np.random.rand(5, 5).astype(np.float32),
+        'conservation': np.random.rand(5).astype(np.float32)
+    }
+    mi_path = mi_dir / f"{target_id}_mi_features.npz"
+    np.savez(mi_path, **mi_data)
+    
+    # Call update_available_features
+    dataset.update_available_features()
+    
+    # Check updated metadata
+    sample3 = dataset[3]  # seq4 - should now have valid MI
+    assert sample3['meta']['has_dihedrals'] == False
+    assert sample3['meta']['has_msa'] == True
 ```
 
 ## 3. Collate Function Tests
 
-### 3.1 Test Basic Collation
+### 3.1 Test Batch Collation with MI Metadata
 
 ```python
-def test_collate_fn_basic():
-    """Test basic functionality of collate_fn."""
-    # Create samples of the same length
-    samples = [
-        {
-            'target_id': 'seq1',
-            'sequence_int': torch.tensor([0, 1, 2, 3, 4]),
-            'dihedral_features': torch.rand(5, 4),
-            'pairing_probs': torch.rand(5, 5),
-            'positional_entropy': torch.rand(5),
-            'coupling_matrix': torch.rand(5, 5),
-            'coordinates': torch.rand(5, 3),
-            'length': 5
-        },
-        {
-            'target_id': 'seq2',
-            'sequence_int': torch.tensor([4, 3, 2, 1, 0]),
-            'dihedral_features': torch.rand(5, 4),
-            'pairing_probs': torch.rand(5, 5),
-            'positional_entropy': torch.rand(5),
-            'coupling_matrix': torch.rand(5, 5),
-            'coordinates': torch.rand(5, 3),
-            'length': 5
+def test_collate_fn_with_mi_metadata():
+    """Test batch collation handling of MI metadata flags."""
+    # Create samples with different MI availability
+    sample1 = {
+        'target_id': 'seq1',
+        'sequence_int': torch.tensor([0, 1, 2, 3, 4]),
+        'dihedral_features': torch.rand(5, 4),
+        'pairing_probs': torch.rand(5, 5),
+        'positional_entropy': torch.rand(5),
+        'coupling_matrix': torch.rand(5, 5),  # Non-zero coupling matrix
+        'length': 5,
+        'meta': {
+            'has_dihedrals': torch.tensor(True),
+            'has_msa': torch.tensor(True)  # Valid MI
         }
-    ]
+    }
+    
+    sample2 = {
+        'target_id': 'seq2',
+        'sequence_int': torch.tensor([4, 3, 2, 1, 0]),
+        'dihedral_features': torch.rand(5, 4),
+        'pairing_probs': torch.rand(5, 5),
+        'positional_entropy': torch.rand(5),
+        'coupling_matrix': torch.zeros(5, 5),  # Zero coupling matrix
+        'length': 5,
+        'meta': {
+            'has_dihedrals': torch.tensor(True),
+            'has_msa': torch.tensor(False)  # Invalid/uniform MI
+        }
+    }
+    
+    sample3 = {
+        'target_id': 'seq3',
+        'sequence_int': torch.tensor([2, 1, 0]),
+        'dihedral_features': torch.zeros(3, 4),
+        'pairing_probs': torch.rand(3, 3),
+        'positional_entropy': torch.rand(3),
+        'coupling_matrix': torch.zeros(3, 3),  # Zero coupling matrix 
+        'length': 3,
+        'meta': {
+            'has_dihedrals': torch.tensor(False),
+            'has_msa': torch.tensor(False)  # Missing MI
+        }
+    }
     
     # Collate samples
-    batch = collate_fn(samples)
+    batch = collate_fn([sample1, sample2, sample3])
     
     # Verify batch structure
-    assert 'target_ids' in batch
-    assert batch['target_ids'] == ['seq1', 'seq2']
+    assert 'meta' in batch
+    assert 'has_dihedrals' in batch['meta']
+    assert 'has_msa' in batch['meta']
     
-    assert 'sequence_int' in batch
-    assert batch['sequence_int'].shape == (2, 5)
+    # Verify metadata tensor shapes
+    assert batch['meta']['has_dihedrals'].shape == (3,)
+    assert batch['meta']['has_msa'].shape == (3,)
     
-    assert 'dihedral_features' in batch
-    assert batch['dihedral_features'].shape == (2, 5, 4)
+    # Verify metadata values
+    assert torch.all(batch['meta']['has_dihedrals'] == torch.tensor([True, True, False]))
+    assert torch.all(batch['meta']['has_msa'] == torch.tensor([True, False, False]))
     
-    assert 'pairing_probs' in batch
-    assert batch['pairing_probs'].shape == (2, 5, 5)
-    
-    assert 'coordinates' in batch
-    assert batch['coordinates'].shape == (2, 5, 3)
-    
-    assert 'mask' in batch
-    assert batch['mask'].shape == (2, 5)
-    assert torch.all(batch['mask'])  # All positions are valid
-    
-    assert 'lengths' in batch
-    assert torch.all(batch['lengths'] == 5)
+    # Verify that coupling matrices are properly padded
+    assert batch['coupling_matrix'].shape == (3, 5, 5)  # Padded to max_len=5
+    # First sample should have non-zero values
+    assert not torch.all(batch['coupling_matrix'][0] == 0)
+    # Second and third samples should be all zeros
+    assert torch.all(batch['coupling_matrix'][1] == 0)
+    assert torch.all(batch['coupling_matrix'][2, :3, :3] == 0)
+    # Third sample padding should be zeros
+    assert torch.all(batch['coupling_matrix'][2, 3:, :] == 0)
+    assert torch.all(batch['coupling_matrix'][2, :, 3:] == 0)
 ```
 
 ### 3.2 Test Variable-Length Collation
@@ -410,7 +664,11 @@ def test_collate_fn_variable_length():
             'positional_entropy': torch.rand(5),
             'coupling_matrix': torch.rand(5, 5),
             'coordinates': torch.rand(5, 3),
-            'length': 5
+            'length': 5,
+            'meta': {
+                'has_dihedrals': torch.tensor(True),
+                'has_msa': torch.tensor(True)
+            }
         },
         {
             'target_id': 'seq2',
@@ -420,7 +678,11 @@ def test_collate_fn_variable_length():
             'positional_entropy': torch.rand(3),
             'coupling_matrix': torch.rand(3, 3),
             'coordinates': torch.rand(3, 3),
-            'length': 3
+            'length': 3,
+            'meta': {
+                'has_dihedrals': torch.tensor(False),
+                'has_msa': torch.tensor(False)
+            }
         }
     ]
     
@@ -463,13 +725,20 @@ def test_collate_fn_edge_cases():
             'pairing_probs': torch.rand(3, 3),
             'positional_entropy': torch.rand(3),
             'coupling_matrix': torch.rand(3, 3),
-            'length': 3
+            'length': 3,
+            'meta': {
+                'has_dihedrals': torch.tensor(True),
+                'has_msa': torch.tensor(True)
+            }
         }
     ]
     
     batch = collate_fn(samples)
     assert batch['sequence_int'].shape == (1, 3)
     assert batch['mask'].shape == (1, 3)
+    assert 'meta' in batch
+    assert batch['meta']['has_msa'].shape == (1,)
+    assert batch['meta']['has_msa'][0] == True
     
     # Case 2: Empty batch (should not happen in practice, but test for robustness)
     with pytest.raises(Exception):  # Exact exception depends on implementation
@@ -481,13 +750,21 @@ def test_collate_fn_edge_cases():
             'target_id': 'seq1',
             'sequence_int': torch.tensor([0, 1, 2]),
             'pairing_probs': torch.rand(3, 3),  # Only include required tensors
-            'length': 3
+            'length': 3,
+            'meta': {
+                'has_dihedrals': torch.tensor(False),
+                'has_msa': torch.tensor(False)
+            }
         },
         {
             'target_id': 'seq2',
             'sequence_int': torch.tensor([3, 4]),
             'pairing_probs': torch.rand(2, 2),
-            'length': 2
+            'length': 2,
+            'meta': {
+                'has_dihedrals': torch.tensor(False),
+                'has_msa': torch.tensor(False)
+            }
         }
     ]
     
@@ -496,6 +773,41 @@ def test_collate_fn_edge_cases():
     assert batch['sequence_int'].shape == (2, 3)
     assert batch['pairing_probs'].shape == (2, 3, 3)
     assert batch['mask'].shape == (2, 3)
+    # Metadata should still be present
+    assert 'meta' in batch
+    assert 'has_msa' in batch['meta']
+    assert torch.all(batch['meta']['has_msa'] == False)
+    
+    # Case a4: Mix of valid and uniform MI
+    samples = [
+        {
+            'target_id': 'seq1',
+            'sequence_int': torch.tensor([0, 1, 2]),
+            'pairing_probs': torch.rand(3, 3), 
+            'coupling_matrix': torch.rand(3, 3),  # Non-zero coupling
+            'length': 3,
+            'meta': {
+                'has_dihedrals': torch.tensor(False),
+                'has_msa': torch.tensor(True)  # Valid MSA
+            }
+        },
+        {
+            'target_id': 'seq2',
+            'sequence_int': torch.tensor([3, 4]),
+            'pairing_probs': torch.rand(2, 2),
+            'coupling_matrix': torch.zeros(2, 2),  # Zero coupling from uniform MI
+            'length': 2,
+            'meta': {
+                'has_dihedrals': torch.tensor(False),
+                'has_msa': torch.tensor(False)  # Invalid/uniform MSA
+            }
+        }
+    ]
+    
+    batch = collate_fn(samples)
+    assert batch['coupling_matrix'].shape == (2, 3, 3)
+    assert 'meta' in batch
+    assert torch.all(batch['meta']['has_msa'] == torch.tensor([True, False]))
 ```
 
 ## 4. End-to-End Tests
@@ -537,8 +849,10 @@ def test_data_loading_end_to_end(tmp_path):
     labels_csv_path = tmp_path / "labels.csv"
     labels_df.to_csv(labels_csv_path, index=False)
     
-    # Create mock feature files for each sequence
-    for seq_id, seq_len in [('seq1', 5), ('seq2', 6)]:
+    # Create mock feature files for each sequence with different MI properties
+    # seq1: Valid MI
+    # seq2: Uniform/invalid MI
+    for i, (seq_id, seq_len) in enumerate([('seq1', 5), ('seq2', 6)]):
         # Dihedral features
         dihedral_path = features_dir / "dihedral_features" / f"{seq_id}_dihedral_features.npz"
         np.savez(dihedral_path, 
@@ -551,11 +865,16 @@ def test_data_loading_end_to_end(tmp_path):
                  positional_entropy=np.random.rand(seq_len).astype(np.float32),
                  mfe=-10.0)
         
-        # Evolutionary features (only for seq1 to test missing feature handling)
-        if seq_id == 'seq1':
-            mi_path = features_dir / "mi_features" / f"{seq_id}_features.npz"
+        # MI features with different properties
+        mi_path = features_dir / "mi_features" / f"{seq_id}_mi_features.npz"
+        if i == 0:  # seq1: valid MI
             np.savez(mi_path,
                     coupling_matrix=np.random.rand(seq_len, seq_len).astype(np.float32))
+        else:  # seq2: uniform MI
+            uniform_mi = np.ones((seq_len, seq_len)) * 0.5
+            np.fill_diagonal(uniform_mi, 0)
+            np.savez(mi_path,
+                    coupling_matrix=uniform_mi.astype(np.float32))
     
     # Create dataset
     dataset = RNADataset(
@@ -579,6 +898,7 @@ def test_data_loading_end_to_end(tmp_path):
     assert len(batch['target_ids']) == 2
     assert batch['sequence_int'].shape == (2, 6)  # Padded to length of seq2
     assert batch['pairing_probs'].shape == (2, 6, 6)
+    assert batch['coupling_matrix'].shape == (2, 6, 6)
     assert batch['mask'].shape == (2, 6)
     
     # Check mask correctness for different lengths
@@ -586,16 +906,38 @@ def test_data_loading_end_to_end(tmp_path):
     assert not batch['mask'][0, 5]  # Position 6 in seq1 is padding
     assert torch.all(batch['mask'][1])  # All 6 positions in seq2 are valid
     
+    # Verify metadata flags
+    assert 'meta' in batch
+    assert 'has_msa' in batch['meta']
+    assert batch['meta']['has_msa'].shape == (2,)
+    assert batch['meta']['has_msa'][0] == True   # seq1 has valid MI
+    assert batch['meta']['has_msa'][1] == False  # seq2 has uniform/invalid MI
+    
+    # Verify coupling matrices reflect has_msa status
+    # seq1 should have non-zero values
+    assert not torch.all(batch['coupling_matrix'][0, :5, :5] == 0)
+    # seq2 should have all zeros despite having MI file (uniform MI)
+    assert torch.all(batch['coupling_matrix'][1] == 0)
+    
     # Test device transfer
     if torch.cuda.is_available():
         device = torch.device('cuda')
         batch_gpu = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
                     for k, v in batch.items()}
         
+        # Handle meta dictionary
+        if 'meta' in batch_gpu:
+            batch_gpu['meta'] = {k: v.to(device) if isinstance(v, torch.Tensor) else v
+                                for k, v in batch_gpu['meta'].items()}
+        
         # Verify device
         for k, v in batch_gpu.items():
             if isinstance(v, torch.Tensor):
                 assert v.device.type == 'cuda'
+            elif k == 'meta':
+                for meta_k, meta_v in batch_gpu['meta'].items():
+                    if isinstance(meta_v, torch.Tensor):
+                        assert meta_v.device.type == 'cuda'
 ```
 
 ## 5. Memory Usage Tests
@@ -631,8 +973,20 @@ def test_memory_efficiency():
                 # Mock coordinates
                 mock_coords.return_value = (np.zeros((seq_len, 3)), ['G'] * seq_len)
                 
-                # Mock feature loading to return large tensors
+                # Mock feature loading to return large tensors with appropriate MI matrix properties
                 def mock_load_large_features(target_id, features_dir):
+                    # For even indices, create valid MI
+                    # For odd indices, create uniform MI
+                    target_idx = int(target_id.replace('seq', ''))
+                    
+                    if target_idx % 2 == 0:  # Valid MI
+                        coupling_matrix = np.random.rand(seq_len, seq_len).astype(np.float32)
+                        has_valid_mi = True
+                    else:  # Uniform MI (invalid)
+                        coupling_matrix = np.ones((seq_len, seq_len)).astype(np.float32) * 0.5
+                        np.fill_diagonal(coupling_matrix, 0)
+                        has_valid_mi = False
+                    
                     return {
                         'dihedral': {'features': np.zeros((seq_len, 4), dtype=np.float32)},
                         'thermo': {
@@ -640,9 +994,11 @@ def test_memory_efficiency():
                             'positional_entropy': np.zeros(seq_len, dtype=np.float32)
                         },
                         'evolutionary': {
-                            'coupling_matrix': np.zeros((seq_len, seq_len), dtype=np.float32)
+                            'coupling_matrix': coupling_matrix,
+                            'has_valid_mi': has_valid_mi
                         }
                     }
+                
                 mock_load.side_effect = mock_load_large_features
                 
                 # Initialize dataset
@@ -679,6 +1035,13 @@ def test_memory_efficiency():
                 for key, value in batch.items():
                     if isinstance(value, torch.Tensor):
                         print(f"{key}: {value.shape}, {value.element_size() * value.nelement() / 10**6:.2f}MB")
+                
+                # Check metadata flags for MI validity
+                assert 'meta' in batch
+                assert 'has_msa' in batch['meta']
+                assert batch['meta']['has_msa'].shape == (4,)  # Batch size 4
+                # Every other sample should have valid MI
+                assert torch.all(batch['meta']['has_msa'] == torch.tensor([True, False, True, False]))
                 
                 # No specific assertion, this is more for information
                 # In a real test, you might set a maximum acceptable memory usage
@@ -722,7 +1085,7 @@ def test_dataloader_model_integration():
     except ImportError:
         pytest.skip("Skipping model integration test - embeddings not implemented yet")
     
-    # Create a minimal model component that uses dataloader output
+    # Create a minimal model component that uses MI metadata
     class MinimalModel(torch.nn.Module):
         def __init__(self):
             super().__init__()
@@ -730,30 +1093,61 @@ def test_dataloader_model_integration():
                 num_embeddings=5,  # 0-4 for ACGTU+N
                 embedding_dim=16
             )
+            
+            # Different processing paths based on MI validity
+            self.msa_path = torch.nn.Linear(16, 16)
+            self.no_msa_path = torch.nn.Linear(16, 16)
         
         def forward(self, batch):
             # Extract inputs
             seq = batch['sequence_int']
             mask = batch['mask']
+            has_msa = batch['meta']['has_msa']  # [batch_size]
             
             # Apply embedding
-            seq_emb = self.seq_embedding(seq)
+            seq_emb = self.seq_embedding(seq)  # [batch_size, seq_len, embed_dim]
             
             # Apply mask
             masked_emb = seq_emb * mask.unsqueeze(-1)
             
-            return {'embeddings': masked_emb}
+            # Different processing based on MI validity
+            results = []
+            for i, emb in enumerate(masked_emb):
+                if has_msa[i]:
+                    # Process with MSA path if valid MI
+                    results.append(self.msa_path(emb))
+                else:
+                    # Process with non-MSA path if invalid/missing MI
+                    results.append(self.no_msa_path(emb))
+            
+            output_emb = torch.stack(results)
+            
+            return {'embeddings': output_emb}
     
     # Create mock dataset
     with patch('src.data_loading.RNADataset.__getitem__') as mock_getitem:
-        # Mock __getitem__ to return compatible sample
-        mock_getitem.return_value = {
-            'target_id': 'seq1',
-            'sequence_int': torch.tensor([0, 1, 2, 3, 0]),
-            'dihedral_features': torch.rand(5, 4),
-            'pairing_probs': torch.rand(5, 5),
-            'length': 5
-        }
+        # Mock __getitem__ to return samples with different MI validity
+        def mock_get_item(idx):
+            # Alternate between valid and invalid MI
+            if idx % 2 == 0:
+                has_msa = True
+            else:
+                has_msa = False
+                
+            return {
+                'target_id': f'seq{idx}',
+                'sequence_int': torch.tensor([0, 1, 2, 3, 0]),
+                'dihedral_features': torch.rand(5, 4),
+                'pairing_probs': torch.rand(5, 5),
+                'coupling_matrix': torch.rand(5, 5) if has_msa else torch.zeros(5, 5),
+                'length': 5,
+                'meta': {
+                    'has_dihedrals': torch.tensor(True),
+                    'has_msa': torch.tensor(has_msa)
+                }
+            }
+        
+        mock_getitem.side_effect = mock_get_item
         
         with patch('src.data_loading.RNADataset.__len__') as mock_len:
             mock_len.return_value = 10
@@ -767,7 +1161,7 @@ def test_dataloader_model_integration():
             
             loader = torch.utils.data.DataLoader(
                 dataset,
-                batch_size=2,
+                batch_size=4,
                 collate_fn=collate_fn
             )
             
@@ -780,7 +1174,54 @@ def test_dataloader_model_integration():
             
             # Verify output
             assert 'embeddings' in outputs
-            assert outputs['embeddings'].shape == (2, 5, 16)
+            assert outputs['embeddings'].shape == (4, 5, 16)
+            
+            # Verify metadata was used correctly
+            assert torch.all(batch['meta']['has_msa'] == torch.tensor([True, False, True, False]))
+```
+
+### 6.3 Test Edge Cases for MI Matrix Detection
+
+```python
+def test_edge_cases_mi_matrix_detection():
+    """Test edge cases for MI matrix detection."""
+    # Test near-uniform matrices with borderline deviations
+    size = 10
+    
+    # Create matrices with different levels of uniformity
+    # 1. Perfect uniform (should detect as uniform)
+    uniform = np.ones((size, size)) * 0.5
+    np.fill_diagonal(uniform, 0)
+    assert is_uniform_mi_matrix(uniform)
+    
+    # 2. Nearly uniform with micro deviation (should still detect as uniform)
+    micro_dev = uniform.copy()
+    micro_dev[0, 1] += 1e-7  # Tiny deviation
+    assert is_uniform_mi_matrix(micro_dev)
+    
+    # 3. Nearly uniform with small deviation (should not detect as uniform)
+    small_dev = uniform.copy()
+    small_dev[0, 1] += 1e-5  # Small but significant deviation
+    assert not is_uniform_mi_matrix(small_dev)
+    
+    # 4. Test with different epsilon values
+    borderline = uniform.copy()
+    borderline[0, 1] += 5e-6  # Just above default epsilon
+    assert not is_uniform_mi_matrix(borderline, epsilon=1e-6)
+    assert is_uniform_mi_matrix(borderline, epsilon=1e-4)
+    
+    # 5. Test tiny matrix (2x2)
+    tiny = np.array([[0, 0.5], [0.5, 0]])
+    assert not is_uniform_mi_matrix(tiny)  # Not uniform by definition (too small)
+    
+    # 6. Test with diagonal values
+    with_diag = np.ones((size, size)) * 0.5  # No zeros on diagonal
+    assert not is_uniform_mi_matrix(with_diag)  # Diagonal affects calculation
+    
+    # 7. Test sparse matrices (mostly zeros)
+    sparse = np.zeros((size, size))
+    sparse[0, 1] = sparse[1, 0] = 0.5  # Only one non-zero off-diagonal value
+    assert not is_uniform_mi_matrix(sparse)  # Should not be uniform
 ```
 
 ## Running the Tests
@@ -792,8 +1233,9 @@ Execute the tests with:
 pytest -xvs tests/test_data_loading.py
 
 # Run specific test groups
-pytest -xvs tests/test_data_loading.py::test_load_coordinates
-pytest -xvs tests/test_data_loading.py::test_collate_fn_variable_length
+pytest -xvs tests/test_data_loading.py::test_is_uniform_mi_matrix
+pytest -xvs tests/test_data_loading.py::test_load_precomputed_features
+pytest -xvs tests/test_data_loading.py::test_dataset_getitem_mi_handling
 ```
 
 Use the `-v` flag for verbose output and `-s` to see print statements.
@@ -815,6 +1257,10 @@ These tests should be incorporated into your CI/CD pipeline to ensure data loadi
 | Memory errors with large sequences | Inefficient handling of large matrices | Use sparse matrices or lazy loading |
 | Device errors in end-to-end tests | Inconsistent device management | Ensure all tensors moved to same device |
 | Missing key errors | Inconsistent feature dictionary structure | Standardize feature access and provide defaults |
+| **Uniform MI detection failures** | **Incorrect epsilon value or matrix handling** | **Adjust epsilon value or check matrix normalization** |
+| **Metadata flag inconsistency** | **has_msa logic not matching has_valid_mi** | **Ensure has_msa only True when MI exists AND is valid** |
+| **Invalid MI handling issues** | **Uniform detection not zeroing matrix** | **Verify uniform matrices are replaced with zeros** |
+| **Batched metadata issues** | **Metadata not properly collected in collate_fn** | **Check meta dictionary handling in collate_fn** |
 
 ## Test Coverage Goals
 
@@ -824,3 +1270,6 @@ Aim for >90% code coverage for the data loading component, ensuring:
 2. All branches of conditional logic are tested
 3. Edge cases and error conditions are explicitly tested
 4. Integration with dependent components is verified
+5. **Uniform MI matrix detection with different thresholds is tested**
+6. **Metadata generation and propagation for MI validity is verified**
+7. **Mixed batches with both valid and invalid MI are tested**

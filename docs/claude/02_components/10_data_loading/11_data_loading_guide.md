@@ -128,22 +128,61 @@ def load_precomputed_features(target_id: str, features_dir: str) -> Dict[str, Di
     mi_path = os.path.join(features_dir, "mi_features", f"{target_id}_mi_features.npz")
     if os.path.exists(mi_path):
         with np.load(mi_path) as data:
-            features['evolutionary'] = {
-                'coupling_matrix': data['coupling_matrix'].astype(np.float32)
-            }
+            evolutionary_features = {}
+            
+            # Get coupling matrix
+            if 'coupling_matrix' in data:
+                coupling_matrix = data['coupling_matrix'].astype(np.float32)
+                
+                # Check if matrix is uniform (single sequence MSA case)
+                if is_uniform_mi_matrix(coupling_matrix):
+                    warnings.warn(f"Uniform MI matrix detected for {target_id}. Treating as missing.")
+                    evolutionary_features['coupling_matrix'] = np.zeros_like(coupling_matrix)
+                    evolutionary_features['has_valid_mi'] = False
+                else:
+                    evolutionary_features['coupling_matrix'] = coupling_matrix
+                    evolutionary_features['has_valid_mi'] = True
+            else:
+                raise ValueError(f"No coupling matrix found for {target_id}")
+            
+            # Get conservation if available
             if 'conservation' in data:
-                features['evolutionary']['conservation'] = data['conservation'].astype(np.float32)
+                evolutionary_features['conservation'] = data['conservation'].astype(np.float32)
+            
+            features['evolutionary'] = evolutionary_features
     else:
         # Create empty evolutionary features based on sequence length
         if 'thermo' in features and 'pairing_probs' in features['thermo']:
             seq_len = features['thermo']['pairing_probs'].shape[0]
             features['evolutionary'] = {
-                'coupling_matrix': np.zeros((seq_len, seq_len), dtype=np.float32)
+                'coupling_matrix': np.zeros((seq_len, seq_len), dtype=np.float32),
+                'has_valid_mi': False
             }
         else:
             features['evolutionary'] = None
     
     return features
+
+def is_uniform_mi_matrix(matrix: np.ndarray, epsilon: float = 1e-6) -> bool:
+    """
+    Check if an MI matrix contains uniform values, indicating a single sequence MSA.
+    
+    Args:
+        matrix: Mutual information matrix
+        epsilon: Threshold for standard deviation to consider uniform
+        
+    Returns:
+        True if matrix appears to have uniform off-diagonal values
+    """
+    # Get values excluding diagonal 
+    off_diag = matrix[~np.eye(matrix.shape[0], dtype=bool)]
+    
+    # Empty matrix case
+    if len(off_diag) == 0:
+        return False
+        
+    # Check if standard deviation is near zero
+    return np.std(off_diag) < epsilon
 ```
 
 ### 2. RNADataset Class
@@ -160,7 +199,8 @@ class RNADataset(torch.utils.data.Dataset):
         labels_csv_path: str,
         features_dir: str,
         temporal_cutoff: Optional[str] = None,
-        use_validation_set: bool = False
+        use_validation_set: bool = False,
+        require_features: bool = True
     ):
         """
         Initialize RNA dataset.
@@ -171,6 +211,7 @@ class RNADataset(torch.utils.data.Dataset):
             features_dir: Directory containing feature files
             temporal_cutoff: Optional date string (YYYY-MM-DD) for filtering training data
             use_validation_set: Whether to use validation data
+            require_features: Whether to require all features (filter out targets missing features)
         """
         # Store paths (NO hardcoded paths)
         self.features_dir = features_dir
@@ -187,6 +228,18 @@ class RNADataset(torch.utils.data.Dataset):
         # Extract target IDs and sequences
         self.target_ids = self.sequences_df['target_id'].tolist()
         self.sequences = self.sequences_df['sequence'].tolist()
+        
+        # Filter by feature availability if required
+        if require_features:
+            self.available_features = self.get_available_features()
+            self.target_ids = [
+                target_id for target_id in self.target_ids
+                if target_id in self.available_features
+            ]
+            self.sequences = [
+                seq for i, seq in enumerate(self.sequences)
+                if self.sequences_df.iloc[i]['target_id'] in self.available_features
+            ]
         
         # Load labels if available
         self.labels_df = None
@@ -206,6 +259,57 @@ class RNADataset(torch.utils.data.Dataset):
         
         # Nucleotide to integer mapping
         self.nuc_to_int = {'A': 0, 'C': 1, 'G': 2, 'U': 3, 'T': 3, 'N': 4}
+    
+    def get_available_features(self) -> Set[str]:
+        """
+        Scan features directory to find targets with required features.
+        
+        Returns:
+            Set of target IDs with available features
+        """
+        available = set()
+        
+        # For each target, check if it has thermodynamic features (minimum requirement)
+        for target_id in self.target_ids:
+            thermo_path = os.path.join(
+                self.features_dir, "thermo_features", f"{target_id}_thermo_features.npz"
+            )
+            if os.path.exists(thermo_path):
+                available.add(target_id)
+        
+        return available
+    
+    def update_available_features(self):
+        """
+        Rescan features directory to update available features.
+        Call this after adding new feature files to incorporate them.
+        """
+        new_available = self.get_available_features()
+        # Find targets that are now available but weren't before
+        new_targets = new_available - set(self.target_ids)
+        
+        # Add new targets to our dataset
+        if new_targets:
+            new_indices = [
+                i for i, target_id in enumerate(self.sequences_df['target_id']) 
+                if target_id in new_targets
+            ]
+            new_rows = self.sequences_df.iloc[new_indices]
+            
+            # Add targets and sequences
+            self.target_ids.extend(new_rows['target_id'].tolist())
+            self.sequences.extend(new_rows['sequence'].tolist())
+            
+            # Load coordinates for new targets if labels available
+            if self.labels_df is not None:
+                for target_id in new_targets:
+                    try:
+                        coords, _ = load_coordinates(self.labels_df, target_id)
+                        self.coordinates[target_id] = coords
+                    except Exception as e:
+                        print(f"Warning: Could not load coordinates for {target_id}: {e}")
+            
+            print(f"Added {len(new_targets)} new targets with features")
     
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""
@@ -297,6 +401,12 @@ class RNADataset(torch.utils.data.Dataset):
             sample['coordinates'] = torch.tensor(
                 self.coordinates[target_id], dtype=torch.float32)
         
+        # Add metadata flags for feature presence
+        sample['meta'] = {
+            'has_dihedrals': features['dihedral'] is not None,
+            'has_msa': features['evolutionary'] is not None and features['evolutionary'].get('has_valid_mi', False),
+        }
+        
         # Verify shapes
         expected_length = len(sequence)
         for key, tensor in sample.items():
@@ -341,8 +451,8 @@ def collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     
     # Process each tensor in the batch
     for key in batch[0].keys():
-        if key in ['target_id', 'length']:
-            continue  # Already processed
+        if key in ['target_id', 'length', 'meta']:
+            continue  # Already processed or handled separately
             
         if isinstance(batch[0][key], torch.Tensor):
             # Process tensor based on its shape
@@ -396,6 +506,12 @@ def collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
         mask[i, :sample['length']] = True
     output['mask'] = mask
     
+    # Collect metadata flags
+    meta = {}
+    for key in batch[0]['meta'].keys():
+        meta[key] = torch.tensor([sample['meta'][key] for sample in batch], dtype=torch.bool)
+    output['meta'] = meta
+    
     return output
 ```
 
@@ -415,6 +531,7 @@ Here are the expected tensor shapes in the batched output:
 | `coordinates` | `(B, L, 3)` | `torch.float32` | C1' coordinates (x, y, z) |
 | `mask` | `(B, L)` | `torch.bool` | Attention mask (True for valid positions) |
 | `lengths` | `(B)` | `torch.long` | Sequence lengths |
+| `meta` | Dict | Various | Metadata flags including feature presence |
 
 Where:
 - `B` is the batch size
@@ -432,6 +549,7 @@ def create_data_loader(
     batch_size: int,
     temporal_cutoff: Optional[str] = None,
     use_validation_set: bool = False,
+    require_features: bool = True,
     shuffle: bool = True,
     num_workers: int = 4,
     distributed: bool = False
@@ -446,6 +564,7 @@ def create_data_loader(
         batch_size: Batch size
         temporal_cutoff: Optional cutoff date for filtering
         use_validation_set: Whether to use validation set
+        require_features: Whether to require all features
         shuffle: Whether to shuffle data
         num_workers: Number of worker processes
         distributed: Whether to use DistributedSampler
@@ -459,7 +578,8 @@ def create_data_loader(
         labels_csv_path=labels_csv_path,
         features_dir=features_dir,
         temporal_cutoff=temporal_cutoff,
-        use_validation_set=use_validation_set
+        use_validation_set=use_validation_set,
+        require_features=require_features
     )
     
     # Create sampler for distributed training
@@ -493,21 +613,25 @@ To ensure the data loading component works correctly, implement these tests:
    - Test with different temporal cutoffs
    - Test with validation set mode
    - Verify filtering logic works correctly
+   - Test feature availability filtering
 
 2. **Feature Loading**
    - Test loading different feature types
    - Verify handling of missing feature files
    - Check shape consistency across features
+   - **Test uniform MI matrix detection**
 
 3. **Batch Collation**
    - Test with variable sequence lengths
    - Verify padding and masking
    - Check all tensor shapes and types
+   - Verify metadata flags are properly collected
 
 4. **End-to-End Data Flow**
    - Create data loader and iterate through batches
    - Verify batch contents match expectations
    - Test compatibility with device transfer
+   - Test feature update mechanism
 
 ## Common Pitfalls
 
@@ -518,6 +642,7 @@ To ensure the data loading component works correctly, implement these tests:
 5. **NaN Handling**: Check for and handle NaN values in dihedral features (common at sequence boundaries).
 6. **Memory Efficiency**: For large datasets, consider lazy loading of features rather than pre-loading all coordinates.
 7. **Device Transfer**: The `collate_fn` should return CPU tensors; device transfer happens later in the training loop.
+8. **Uniform MI Matrices**: Watch for MI matrices with identical values throughout (excluding diagonal), typically resulting from single-sequence MSAs with no actual evolutionary information. These should be treated as missing features.
 
 ## Integration with Config
 
@@ -540,6 +665,7 @@ def main():
         features_dir=data_config['features_dir'],
         batch_size=data_config['batch_size'],
         temporal_cutoff=data_config.get('temporal_cutoff'),
+        require_features=data_config.get('require_features', True),
         num_workers=data_config.get('num_workers', 4)
     )
     
@@ -553,4 +679,6 @@ After implementing the data loading component:
 
 1. Validate with example feature files to ensure correct loading
 2. Implement unit tests for the dataset and collate function
-3. Proceed to implementing the embedding layers, which will consume the outputs from this component
+3. Test the uniform MI matrix detection with examples from the training data
+4. Verify the metadata flags are properly propagated through batch collation
+5. Proceed to implementing the embedding layers, which will consume the outputs from this component
