@@ -1,11 +1,14 @@
 import os
 import warnings
-from typing import Dict, List, Optional, Tuple, Any, Union
+import time
+from typing import Dict, List, Optional, Tuple, Any, Union, Callable
 
 import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
+
+from .utils.padding import pad_1d, pad_2d, pad_tensor
 
 
 def load_coordinates(labels_df: pd.DataFrame, target_id: str) -> Tuple[np.ndarray, List[str]]:
@@ -37,9 +40,72 @@ def load_coordinates(labels_df: pd.DataFrame, target_id: str) -> Tuple[np.ndarra
     return coords, resnames
 
 
-def load_precomputed_features(target_id: str, features_dir: str) -> Dict[str, Union[Dict[str, np.ndarray], None]]:
+def check_features_availability(target_id: str, features_dir: str) -> Dict[str, bool]:
+    """Check which features are available for a given target.
+    
+    Args:
+        target_id: The ID of the target RNA sequence
+        features_dir: Directory containing feature subdirectories
+        
+    Returns:
+        Dictionary mapping feature types to availability (True/False)
     """
-    Load all precomputed features for a target from .npz files.
+    availability = {
+        "dihedral": False,
+        "thermo": False,
+        "mi": False
+    }
+    
+    # Check each feature type
+    dihedral_path = os.path.join(features_dir, "dihedral_features", f"{target_id}_dihedral_features.npz")
+    thermo_path = os.path.join(features_dir, "thermo_features", f"{target_id}_thermo_features.npz")
+    mi_path = os.path.join(features_dir, "mi_features", f"{target_id}_mi_features.npz")
+    
+    availability["dihedral"] = os.path.exists(dihedral_path)
+    availability["thermo"] = os.path.exists(thermo_path)
+    availability["mi"] = os.path.exists(mi_path)
+    
+    return availability
+
+
+def get_dihedral_tensors(target_id: str, features_dir: str) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Get both input and target dihedral tensors.
+    
+    This function always returns two tensors: one for input features and one for 
+    target angles, even if the feature file only contains one. This design ensures
+    V2 readiness when target angles might be used differently.
+    
+    Args:
+        target_id: The ID of the target RNA sequence
+        features_dir: Directory containing feature subdirectories
+        
+    Returns:
+        Tuple of (input_tensor, target_tensor), each of shape (seq_len, 4) or (0, 4)
+    """
+    # Check if dihedral features exist
+    dihedral_path = os.path.join(features_dir, "dihedral_features", f"{target_id}_dihedral_features.npz")
+    
+    if not os.path.exists(dihedral_path):
+        # Return empty tensors if features don't exist
+        return torch.zeros((0, 4), dtype=torch.float32), torch.zeros((0, 4), dtype=torch.float32)
+    
+    # Load dihedral features
+    with np.load(dihedral_path) as data:
+        if 'features' in data:
+            features = data['features'].astype(np.float32)
+            # Handle NaN values
+            if np.isnan(features).any():
+                features = np.nan_to_num(features, nan=0.0)
+            
+            # For now, use the same tensor for both input and target
+            # In V2, we might have separate input and target tensors
+            return torch.tensor(features), torch.tensor(features)
+        else:
+            return torch.zeros((0, 4), dtype=torch.float32), torch.zeros((0, 4), dtype=torch.float32)
+
+
+def load_precomputed_features(target_id: str, features_dir: str) -> Dict[str, Union[Dict[str, np.ndarray], None]]:
+    """Load all precomputed features for a target from .npz files.
     
     Args:
         target_id: RNA sequence identifier
@@ -144,52 +210,65 @@ def load_precomputed_features(target_id: str, features_dir: str) -> Dict[str, Un
 
 
 class RNADataset(Dataset):
-    """Dataset class for RNA 3D structure prediction."""
+    """Dataset class for RNA 3D structure prediction with partial data handling."""
     
     def __init__(
         self, 
         sequences_csv_path: str,
-        labels_csv_path: str,
-        features_dir: str,
+        labels_csv_path: Optional[str] = None,
+        features_dir: str = "",
+        split_fn: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
         temporal_cutoff: Optional[str] = None,
-        use_validation_set: bool = False
+        use_validation_set: bool = False,
+        require_features: bool = True
     ):
-        """
-        Initialize RNA dataset.
+        """Initialize RNA dataset with pluggable split logic and feature filtering.
         
         Args:
-            sequences_csv_path: Path to sequences CSV file
-            labels_csv_path: Path to labels CSV file
-            features_dir: Directory containing feature files
-            temporal_cutoff: Optional date string (YYYY-MM-DD) for filtering training data
-            use_validation_set: Whether to use validation data
+            sequences_csv_path: Path to CSV file containing RNA sequences
+            labels_csv_path: Path to CSV file containing 3D coordinates (optional for inference)
+            features_dir: Directory containing feature subdirectories
+            split_fn: Optional function to apply custom splitting logic
+            temporal_cutoff: Optional date string for temporal validation split
+            use_validation_set: If True, use validation set, otherwise training set
+            require_features: If True, only use sequences with available features
         """
         # Store paths (NO hardcoded paths)
         self.features_dir = features_dir
+        self.require_features = require_features
         
         # Load sequences
         self.sequences_df = pd.read_csv(sequences_csv_path)
         
-        # Filter by temporal cutoff if specified
-        if temporal_cutoff is not None and not use_validation_set:
+        # Apply custom split function if provided
+        if split_fn is not None:
+            self.sequences_df = split_fn(self.sequences_df)
+        # Otherwise, apply temporal cutoff if specified
+        elif temporal_cutoff is not None and not use_validation_set:
             self.sequences_df = self.sequences_df[
                 pd.to_datetime(self.sequences_df['temporal_cutoff']) <= pd.to_datetime(temporal_cutoff)
             ]
         
-        # Extract target IDs and sequences
+        # Extract all target IDs and sequences
         self.target_ids = self.sequences_df['target_id'].tolist()
         self.sequences = self.sequences_df['sequence'].tolist()
         
+        # Initialize feature availability cache
+        self._availability_cache = {}
+        
+        # Populate availability cache and filter sequences based on feature availability
+        self._scan_available_features()
+        self._update_filtered_sequences()
+        
         # Load labels if available
         self.labels_df = None
-        self.coordinates = None
+        self.coordinates = {}
         if labels_csv_path is not None and os.path.exists(labels_csv_path):
             self.labels_df = pd.read_csv(labels_csv_path)
             
-            # Pre-load all coordinates if not too memory intensive
+            # Pre-load coordinates for filtered sequences if not too memory intensive
             # For large datasets, you might want to load coordinates on-demand in __getitem__
-            self.coordinates = {}
-            for target_id in self.target_ids:
+            for target_id in self.filtered_sequences:
                 try:
                     coords, _ = load_coordinates(self.labels_df, target_id)
                     self.coordinates[target_id] = coords
@@ -199,26 +278,74 @@ class RNADataset(Dataset):
         # Nucleotide to integer mapping
         self.nuc_to_int = {'A': 0, 'C': 1, 'G': 2, 'U': 3, 'T': 3, 'N': 4}
     
+    def _scan_available_features(self):
+        """Scan features directory and populate availability cache."""
+        for target_id in self.target_ids:
+            self._availability_cache[target_id] = check_features_availability(
+                target_id, self.features_dir)
+    
+    def _update_filtered_sequences(self):
+        """Update the list of filtered sequences based on feature requirements."""
+        if not self.require_features:
+            # Include all sequences if features not required
+            self.filtered_sequences = self.target_ids.copy()
+            return
+        
+        # Filter based on feature availability
+        self.filtered_sequences = []
+        for target_id in self.target_ids:
+            if target_id not in self._availability_cache:
+                continue
+            
+            # Check if all required features are available
+            avail = self._availability_cache[target_id]
+            if all(avail.values()):
+                self.filtered_sequences.append(target_id)
+    
+    def update_available_features(self) -> int:
+        """Update the list of available features.
+        
+        Rescans the features directory to identify newly available feature files
+        and updates the filtered sequence list accordingly.
+        
+        Returns:
+            Number of sequences with complete feature sets
+        """
+        # Reset availability cache
+        self._availability_cache = {}
+        
+        # Scan for available features
+        self._scan_available_features()
+        
+        # Update filtered sequences
+        self._update_filtered_sequences()
+        
+        # Return number of valid sequences
+        return len(self.filtered_sequences)
+    
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""
-        return len(self.target_ids)
+        return len(self.filtered_sequences)
     
     def sequence_to_int(self, sequence: str) -> List[int]:
         """Convert nucleotide sequence to integer indices."""
         return [self.nuc_to_int.get(nuc, 4) for nuc in sequence]
     
     def __getitem__(self, idx: int) -> Dict[str, Any]:
-        """
-        Get a sample from the dataset.
+        """Get features and labels for a single RNA sequence.
         
         Args:
-            idx: Sample index
+            idx: Index of the sequence
             
         Returns:
-            Dictionary of tensors and metadata
+            Dictionary containing features and labels for the sequence
         """
-        target_id = self.target_ids[idx]
-        sequence = self.sequences[idx]
+        # Get target_id from filtered sequences
+        target_id = self.filtered_sequences[idx]
+        
+        # Find the original index to get the sequence
+        original_idx = self.target_ids.index(target_id)
+        sequence = self.sequences[original_idx]
         sequence_length = len(sequence)
         
         # Load precomputed features
@@ -237,13 +364,45 @@ class RNADataset(Dataset):
             'length': sequence_length
         }
         
-        # Add dihedral features if available
-        if features['dihedral'] is not None:
-            sample['dihedral_features'] = torch.tensor(
-                features['dihedral']['features'], dtype=torch.float32)
+        # Generate metadata flags from availability cache
+        meta = {}
+        if target_id in self._availability_cache:
+            avail = self._availability_cache[target_id]
+            meta["has_dihedrals"] = torch.tensor(avail["dihedral"], dtype=torch.bool)
+            meta["has_thermo"] = torch.tensor(avail["thermo"], dtype=torch.bool)
+            meta["has_msa"] = torch.tensor(avail["mi"], dtype=torch.bool)
+        else:
+            # Default to False if not in cache
+            meta["has_dihedrals"] = torch.tensor(False, dtype=torch.bool)
+            meta["has_thermo"] = torch.tensor(False, dtype=torch.bool)
+            meta["has_msa"] = torch.tensor(False, dtype=torch.bool)
+        
+        # Add training/validation flag
+        if hasattr(self.sequences_df, 'temporal_cutoff'):
+            is_train = True
+            if 'validation' in self.sequences_df.columns:
+                original_row = self.sequences_df.iloc[original_idx]
+                is_train = not original_row['validation']
+            meta["is_train"] = torch.tensor(is_train, dtype=torch.bool)
+        
+        # Add metadata to sample
+        sample['meta'] = meta
+        
+        # Get dihedral tensors (input and target)
+        dihedral_input, dihedral_target = get_dihedral_tensors(target_id, self.features_dir)
+        
+        # Add dihedral features
+        if dihedral_input.shape[0] > 0:
+            sample['dihedral_features'] = dihedral_input
         else:
             # Create default zero tensor
             sample['dihedral_features'] = torch.zeros((sequence_length, 4), dtype=torch.float32)
+        
+        # Add target dihedral angles (for future use)
+        if dihedral_target.shape[0] > 0:
+            sample['dihedral_targets'] = dihedral_target
+        else:
+            sample['dihedral_targets'] = torch.zeros((sequence_length, 4), dtype=torch.float32)
         
         # Add thermodynamic features
         sample['pairing_probs'] = torch.tensor(
@@ -285,15 +444,16 @@ class RNADataset(Dataset):
             sample['conservation'] = torch.zeros(sequence_length, dtype=torch.float32)
         
         # Add coordinates if available (for training)
-        if self.coordinates is not None and target_id in self.coordinates:
+        if target_id in self.coordinates:
             sample['coordinates'] = torch.tensor(
                 self.coordinates[target_id], dtype=torch.float32)
         
         # Verify shapes
         expected_length = len(sequence)
         for key, tensor in sample.items():
-            if isinstance(tensor, torch.Tensor):
-                if key in ['dihedral_features', 'positional_entropy', 'accessibility', 'conservation']:
+            if isinstance(tensor, torch.Tensor) and key != 'meta':
+                if key in ['dihedral_features', 'dihedral_targets', 'positional_entropy', 
+                          'accessibility', 'conservation']:
                     assert tensor.shape[0] == expected_length, \
                         f"Feature {key} length mismatch: {tensor.shape[0]} vs {expected_length}"
                 elif key in ['pairing_probs', 'coupling_matrix']:
@@ -304,14 +464,13 @@ class RNADataset(Dataset):
 
 
 def collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Collate function for DataLoader to handle variable-length sequences.
+    """Collate a list of samples into a batch.
     
     Args:
-        batch: List of samples from RNADataset.__getitem__
+        batch: List of dictionaries, each containing features for a single sequence
         
     Returns:
-        Dictionary of batched tensors with padding
+        Dictionary containing batched tensors
     """
     # Get batch size and maximum sequence length
     batch_size = len(batch)
@@ -326,9 +485,17 @@ def collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
         'lengths': torch.tensor([sample['length'] for sample in batch], dtype=torch.long)
     }
     
+    # Process meta dictionary separately
+    if 'meta' in batch[0]:
+        meta = {}
+        for key in batch[0]['meta'].keys():
+            # Collect values for this key from all samples
+            meta[key] = torch.stack([sample['meta'][key] for sample in batch])
+        output['meta'] = meta
+    
     # Process each tensor in the batch
     for key in batch[0].keys():
-        if key in ['target_id', 'length']:
+        if key in ['target_id', 'length', 'meta']:
             continue  # Already processed
             
         if isinstance(batch[0][key], torch.Tensor):
@@ -337,33 +504,29 @@ def collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
             
             if len(sample_shape) == 1:
                 # 1D tensor (sequence, per-residue features)
-                padded = torch.zeros((batch_size, max_len), dtype=batch[0][key].dtype)
-                for i, sample in enumerate(batch):
-                    length = sample['length']
-                    padded[i, :length] = sample[key]
-                output[key] = padded
+                output[key] = torch.stack([
+                    pad_1d(sample[key], max_len) for sample in batch
+                ])
                 
-            elif len(sample_shape) == 2 and key in ['dihedral_features', 'coordinates']:
-                # 2D tensor with feature dimension
-                feature_dim = sample_shape[1]
-                padded = torch.zeros((batch_size, max_len, feature_dim), dtype=batch[0][key].dtype)
-                for i, sample in enumerate(batch):
-                    if key in sample:  # Check if feature is available
-                        length = sample['length']
-                        padded[i, :length, :] = sample[key]
-                output[key] = padded
+            elif len(sample_shape) == 2 and sample_shape[1] != sample_shape[0]:
+                # 2D tensor with feature dimension (L, D)
+                output[key] = torch.stack([
+                    pad_2d(sample[key], max_len) for sample in batch
+                ])
                 
-            elif len(sample_shape) == 2 and key in ['pairing_probs', 'coupling_matrix']:
-                # 2D matrix (pair features)
-                padded = torch.zeros((batch_size, max_len, max_len), dtype=batch[0][key].dtype)
-                for i, sample in enumerate(batch):
-                    length = sample['length']
-                    padded[i, :length, :length] = sample[key]
-                output[key] = padded
+            elif len(sample_shape) == 2:
+                # 2D square matrix (L, L)
+                output[key] = torch.stack([
+                    pad_2d(sample[key], max_len) for sample in batch
+                ])
             
-            else:
-                # Handle other tensor types
-                continue
+            elif len(sample_shape) > 2:
+                # Handle higher dimensional tensors
+                # Create target shape with batch dimension
+                target_shape = (max_len,) + sample_shape[1:]
+                output[key] = torch.stack([
+                    pad_tensor(sample[key], target_shape) for sample in batch
+                ])
         
         elif isinstance(batch[0][key], (int, float)):
             # Handle scalar values
@@ -380,40 +543,62 @@ def collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def create_data_loader(
     sequences_csv_path: str,
-    labels_csv_path: str,
-    features_dir: str,
-    batch_size: int,
+    labels_csv_path: Optional[str] = None,
+    features_dir: str = "",
+    batch_size: int = 32,
+    split_fn: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
     temporal_cutoff: Optional[str] = None,
     use_validation_set: bool = False,
+    require_features: bool = True,
     shuffle: bool = True,
     num_workers: int = 4,
     distributed: bool = False
-):
-    """
-    Create a DataLoader for RNA 3D structure prediction.
+) -> torch.utils.data.DataLoader:
+    """Create data loader for RNA structure prediction with flexible splitting and feature filtering.
     
     Args:
-        sequences_csv_path: Path to sequences CSV
-        labels_csv_path: Path to labels CSV
-        features_dir: Path to directory with feature files
-        batch_size: Batch size
-        temporal_cutoff: Optional cutoff date for filtering
-        use_validation_set: Whether to use validation set
-        shuffle: Whether to shuffle data
-        num_workers: Number of worker processes
+        sequences_csv_path: Path to CSV file containing RNA sequences
+        labels_csv_path: Path to CSV file containing 3D coordinates (optional for inference)
+        features_dir: Directory containing feature subdirectories
+        batch_size: Number of sequences per batch
+        split_fn: Optional function to apply custom splitting logic
+        temporal_cutoff: Optional date string for temporal validation split
+        use_validation_set: If True, use validation set, otherwise training set
+        require_features: If True, only use sequences with available features
+        shuffle: Whether to shuffle the dataset
+        num_workers: Number of worker threads for data loading
         distributed: Whether to use DistributedSampler
         
     Returns:
-        PyTorch DataLoader
+        DataLoader object that yields batches with features and labels
     """
+    # Verify paths
+    if not os.path.exists(sequences_csv_path):
+        raise FileNotFoundError(f"Sequences file not found: {sequences_csv_path}")
+    
+    if labels_csv_path is not None and not os.path.exists(labels_csv_path):
+        warnings.warn(f"Labels file not found: {labels_csv_path}. Running in inference mode.")
+        labels_csv_path = None
+    
+    if features_dir and not os.path.exists(features_dir):
+        warnings.warn(f"Features directory not found: {features_dir}")
+    
     # Create dataset
     dataset = RNADataset(
         sequences_csv_path=sequences_csv_path,
         labels_csv_path=labels_csv_path,
         features_dir=features_dir,
+        split_fn=split_fn,
         temporal_cutoff=temporal_cutoff,
-        use_validation_set=use_validation_set
+        use_validation_set=use_validation_set,
+        require_features=require_features
     )
+    
+    # Check dataset size
+    if len(dataset) == 0:
+        warnings.warn(f"Dataset is empty. Check feature filtering settings or data availability.")
+        if require_features:
+            warnings.warn(f"Try setting require_features=False to include sequences without features.")
     
     # Create sampler for distributed training
     sampler = None

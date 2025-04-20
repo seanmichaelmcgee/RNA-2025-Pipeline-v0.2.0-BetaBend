@@ -608,3 +608,195 @@ class TestCollateFunction:
         assert batch['pairing_probs'].shape == (1, 3, 3)
         assert batch['mask'].shape == (1, 3)
         assert torch.all(batch['mask'])  # All positions are valid
+
+
+class TestFeatureAvailability:
+    """Tests for feature availability detection and partial data handling."""
+    
+    def test_check_features_availability(self, tmp_path):
+        """Test feature availability detection function."""
+        # Set up directory structure
+        features_dir = tmp_path / "features"
+        features_dir.mkdir()
+        
+        dihedral_dir = features_dir / "dihedral_features"
+        thermo_dir = features_dir / "thermo_features"
+        mi_dir = features_dir / "mi_features"
+        
+        dihedral_dir.mkdir()
+        thermo_dir.mkdir()
+        mi_dir.mkdir()
+        
+        # Create test files for different combinations
+        target1 = "target1"  # All features available
+        target2 = "target2"  # Only thermo available
+        target3 = "target3"  # No features available
+        
+        # Create empty files
+        (dihedral_dir / f"{target1}_dihedral_features.npz").touch()
+        (thermo_dir / f"{target1}_thermo_features.npz").touch()
+        (mi_dir / f"{target1}_mi_features.npz").touch()
+        
+        (thermo_dir / f"{target2}_thermo_features.npz").touch()
+        
+        # Test availability detection
+        avail1 = check_features_availability(target1, str(features_dir))
+        avail2 = check_features_availability(target2, str(features_dir))
+        avail3 = check_features_availability(target3, str(features_dir))
+        
+        # Verify results
+        assert avail1 == {"dihedral": True, "thermo": True, "mi": True}
+        assert avail2 == {"dihedral": False, "thermo": True, "mi": False}
+        assert avail3 == {"dihedral": False, "thermo": False, "mi": False}
+    
+    def test_dataset_feature_filtering(self, tmp_path, mock_sequences_df):
+        """Test dataset filtering based on feature availability."""
+        # Set up directory structure
+        features_dir = tmp_path / "features"
+        features_dir.mkdir()
+        
+        dihedral_dir = features_dir / "dihedral_features"
+        thermo_dir = features_dir / "thermo_features"
+        mi_dir = features_dir / "mi_features"
+        
+        dihedral_dir.mkdir()
+        thermo_dir.mkdir()
+        mi_dir.mkdir()
+        
+        # Create test files
+        # seq1: all features available
+        (dihedral_dir / "seq1_dihedral_features.npz").touch()
+        (thermo_dir / "seq1_thermo_features.npz").touch()
+        (mi_dir / "seq1_mi_features.npz").touch()
+        
+        # seq2: only thermo available
+        (thermo_dir / "seq2_thermo_features.npz").touch()
+        
+        # Mock read_csv to return our test data
+        with patch('pandas.read_csv', return_value=mock_sequences_df):
+            # Test with require_features=True
+            dataset = RNADataset(
+                sequences_csv_path='dummy/sequences.csv',
+                features_dir=str(features_dir),
+                require_features=True
+            )
+            
+            # Verify only sequences with all features are included
+            assert len(dataset) == 1
+            assert dataset.filtered_sequences == ['seq1']
+            
+            # Test with require_features=False
+            dataset_all = RNADataset(
+                sequences_csv_path='dummy/sequences.csv',
+                features_dir=str(features_dir),
+                require_features=False
+            )
+            
+            # Verify all sequences are included
+            assert len(dataset_all) == 4
+            assert set(dataset_all.filtered_sequences) == {'seq1', 'seq2', 'seq3', 'seq4'}
+    
+    def test_update_available_features(self, tmp_path, mock_sequences_df):
+        """Test dynamic updating of available features."""
+        # Set up directory structure
+        features_dir = tmp_path / "features"
+        features_dir.mkdir()
+        
+        dihedral_dir = features_dir / "dihedral_features"
+        thermo_dir = features_dir / "thermo_features"
+        mi_dir = features_dir / "mi_features"
+        
+        dihedral_dir.mkdir()
+        thermo_dir.mkdir()
+        mi_dir.mkdir()
+        
+        # Initial state: only seq1 has all features
+        (dihedral_dir / "seq1_dihedral_features.npz").touch()
+        (thermo_dir / "seq1_thermo_features.npz").touch()
+        (mi_dir / "seq1_mi_features.npz").touch()
+        
+        # Mock read_csv to return our test data
+        with patch('pandas.read_csv', return_value=mock_sequences_df):
+            # Create dataset with require_features=True
+            dataset = RNADataset(
+                sequences_csv_path='dummy/sequences.csv',
+                features_dir=str(features_dir),
+                require_features=True
+            )
+            
+            # Verify only seq1 is included
+            assert len(dataset) == 1
+            assert dataset.filtered_sequences == ['seq1']
+            
+            # Add features for seq2
+            (dihedral_dir / "seq2_dihedral_features.npz").touch()
+            (thermo_dir / "seq2_thermo_features.npz").touch()
+            (mi_dir / "seq2_mi_features.npz").touch()
+            
+            # Update available features
+            count = dataset.update_available_features()
+            
+            # Verify dataset now includes seq2
+            assert count == 2
+            assert len(dataset) == 2
+            assert set(dataset.filtered_sequences) == {'seq1', 'seq2'}
+    
+    def test_metadata_flags(self, tmp_path, mock_sequences_df, mock_feature_data):
+        """Test generation of metadata flags for feature presence."""
+        # Set up directory structure
+        features_dir = tmp_path / "features"
+        features_dir.mkdir()
+        
+        dihedral_dir = features_dir / "dihedral_features"
+        thermo_dir = features_dir / "thermo_features"
+        mi_dir = features_dir / "mi_features"
+        
+        dihedral_dir.mkdir()
+        thermo_dir.mkdir()
+        mi_dir.mkdir()
+        
+        # Create test files with different availability patterns
+        # seq1: all features
+        np.savez(dihedral_dir / "seq1_dihedral_features.npz", **mock_feature_data['dihedral'])
+        np.savez(thermo_dir / "seq1_thermo_features.npz", **mock_feature_data['thermo'])
+        np.savez(mi_dir / "seq1_mi_features.npz", **mock_feature_data['evolutionary'])
+        
+        # seq2: only thermo
+        np.savez(thermo_dir / "seq2_thermo_features.npz", **mock_feature_data['thermo'])
+        
+        # Mock read_csv and load_coordinates
+        with patch('pandas.read_csv', return_value=mock_sequences_df), \
+             patch('src.data_loading.load_coordinates', return_value=(np.ones((5, 3)), ['G', 'A', 'C', 'U', 'G'])):
+            
+            # Create dataset with require_features=False to include seq2
+            dataset = RNADataset(
+                sequences_csv_path='dummy/sequences.csv',
+                features_dir=str(features_dir),
+                require_features=False
+            )
+            
+            # Get samples
+            sample1 = dataset[0]  # seq1
+            sample2 = dataset[1]  # seq2
+            
+            # Verify metadata flags for seq1
+            assert 'meta' in sample1
+            assert sample1['meta']['has_dihedrals'] == torch.tensor(True)
+            assert sample1['meta']['has_thermo'] == torch.tensor(True)
+            assert sample1['meta']['has_msa'] == torch.tensor(True)
+            
+            # Verify metadata flags for seq2
+            assert 'meta' in sample2
+            assert sample2['meta']['has_dihedrals'] == torch.tensor(False)
+            assert sample2['meta']['has_thermo'] == torch.tensor(True)
+            assert sample2['meta']['has_msa'] == torch.tensor(False)
+            
+            # Test collation of metadata
+            batch = collate_fn([sample1, sample2])
+            
+            # Verify metadata in batch
+            assert 'meta' in batch
+            assert 'has_dihedrals' in batch['meta']
+            assert torch.all(batch['meta']['has_dihedrals'] == torch.tensor([True, False]))
+            assert torch.all(batch['meta']['has_thermo'] == torch.tensor([True, True]))
+            assert torch.all(batch['meta']['has_msa'] == torch.tensor([True, False]))
