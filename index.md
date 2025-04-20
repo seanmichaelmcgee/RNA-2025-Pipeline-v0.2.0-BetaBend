@@ -77,13 +77,12 @@ Version: v0.2.0-BetaBend
 │   │   │   ├── instance_03_integration/     # Integration instance workspace
 │   │   │   ├── instance_04_testing/         # Testing instance workspace (fixed typo)
 │   │   │   └── shared/                      # Shared documentation for code instances
-│   │   │       ├── 01_Code_instances_plan.md
-│   │   │       ├── 02_Code_instances_implementation_and_GUIDE.md
-│   │   │       ├── 03_Advanced_implementation_strategy.md
 │   │   │       ├── 04_implementation_journal_template.md
 │   │   │       ├── 05_interface_contract_template.md
 │   │   │       ├── 06_component_handoff_protocol.md
-│   │   │       └── 07_component_status_tracker.md
+│   │   │       ├── 07_component_status_tracker.md
+│   │   │       ├── 08_component_handoff_template.md
+│   │   │       └── 09_advanced_reference.md
 │   │   ├── 04_reference/      # Reference materials
 │   │   │   ├── configuration.md
 │   │   │   ├── feature_formats.md
@@ -102,20 +101,24 @@ Version: v0.2.0-BetaBend
 ├── environment.yml            # Conda/mamba environment configuration
 ├── index.md                   # This file - codebase index
 ├── scripts/                   # Utility scripts
+│   ├── run_data_loading.py    # Script to run the data pipeline
 │   └── test_data_loading.py   # Script to test data loading
 ├── setup_project.sh           # Project setup script
 ├── src/                       # Source code
 │   ├── data_loading.py        # Data loading functionality
 │   ├── ipa-module-tests.py    # IPA module test scripts
 │   ├── losses.py              # Loss functions
-│   └── models/                # Model components
-│       ├── embeddings.py      # Feature embedding module
-│       ├── ipa_module.py      # Invariant Point Attention module
-│       ├── rna_folding_model.py # Main RNA folding model
-│       └── transformer_block.py # Transformer architecture
+│   ├── models/                # Model components
+│   │   ├── embeddings.py      # Feature embedding module
+│   │   ├── ipa_module.py      # Invariant Point Attention module
+│   │   ├── rna_folding_model.py # Main RNA folding model
+│   │   └── transformer_block.py # Transformer architecture
+│   └── utils/                 # Utility functions
+│       └── padding.py         # Padding utilities for variable-length sequences
 └── tests/                     # Test suite
     ├── test_data_loading.py   # Tests for data loading
-    └── test_losses.py         # Tests for loss functions
+    ├── test_losses.py         # Tests for loss functions
+    └── test_padding.py        # Tests for padding utilities
 ```
 
 ## Key Components
@@ -126,6 +129,11 @@ Version: v0.2.0-BetaBend
   - Feature preprocessing and normalization
   - Batch collation with padding for variable-length sequences
   - Mask generation for attention mechanisms
+  - Partial data handling with feature availability detection
+- **Padding Utilities** (`src/utils/padding.py`): Provides efficient padding for tensors.
+  - Memory-efficient padding for 1D, 2D, and N-D tensors
+  - Supports different padding values and strategies
+  - Optimized for variable-length RNA sequences
 - **Raw Data** (`data/raw/`): Contains MSA files, training sequences, labels, and validation data.
 
 ### 2. Model Architecture
@@ -160,6 +168,7 @@ Version: v0.2.0-BetaBend
 - **Test Suite** (`tests/`): Comprehensive testing for all components.
   - `test_data_loading.py`: Validates data loading functionality
   - `test_losses.py`: Verifies correctness of loss function implementations
+  - `test_padding.py`: Tests padding utilities for variable-length sequences
   - More test files to be added for each component
   - Coverage reporting and integration tests
 
