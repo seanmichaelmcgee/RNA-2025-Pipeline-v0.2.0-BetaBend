@@ -9,6 +9,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with ne
 - Configuration-driven initialization with `config` dictionary
 - Forward methods with consistent tensor shapes and types
 - Explicit mask handling throughout
+- Type annotations for all methods and parameters
+
+### Key Design Patterns
+- **Pre-normalization architecture**: LayerNorm before operations, not after
+- **Residual connections**: Used throughout for gradient flow
+- **Explicit error handling**: Validate configuration parameters
+- **Dual representation**: Separate residue and pair representations
+- **Configuration validation**: Check compatibility of dimensions
+- **Device agnostic**: Support both CPU and GPU execution
+- **Consistent mask handling**: Propagate masks through all components
+
+### Numerical Stability Patterns
+- **Masking before softmax**: Apply attention masks before softmax operations
+- **Parameter initialization**: Custom initialization for better convergence
+- **Gradient flow**: Ensure clean paths for gradient propagation
+- **Epsilon values**: Include epsilon terms in normalization operations
+- **Dimension validation**: Check tensor dimensions during forward pass
 
 ### Neural Network Component Testing
 ```python

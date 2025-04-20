@@ -295,31 +295,150 @@ Each component processes:
 
 ### 6.2 Algorithms and Data Structures
 
-- **Sequence Embedding**: Standard embedding lookup for nucleotide tokens
-- **Positional Encoding**: Sinusoidal positional encodings for absolute positions
-- **Relative Positional Encoding**: Learned embeddings for relative positions between residues
-- **Self-Attention**: Multi-head attention for modeling global relationships
-- **Pair Representation**: Outer product-based updates for capturing residue-pair interactions
-- **IPA V1 (Placeholder)**: Simple MLP projection for initial coordinate prediction
-- **Pre-Normalization**: LayerNorm before each sub-module for better gradient flow
+#### Embedding Components
+
+- **Sequence Embedding**: 
+  - **Algorithm**: Standard embedding lookup for RNA nucleotide tokens
+  - **Implementation**: Uses PyTorch's nn.Embedding with padding_idx parameter to zero out padding tokens
+  - **Key feature**: Shares embedding weights across all instances of the same nucleotide
+
+- **Positional Encoding**: 
+  - **Algorithm**: Sinusoidal positional encodings for absolute positions
+  - **Implementation**: Uses sin/cos functions with different frequencies
+  - **Formula**: PE(pos, 2i) = sin(pos/10000^(2i/d_model)), PE(pos, 2i+1) = cos(pos/10000^(2i/d_model))
+  - **Key feature**: Pre-computation of encodings for efficiency
+
+- **Relative Positional Encoding**: 
+  - **Algorithm**: Learned embeddings for relative positions between residues
+  - **Implementation**: Uses distance binning with maximum distance threshold
+  - **Key feature**: Initialized with sinusoidal pattern for better convergence
+
+#### Transformer Components
+
+- **Self-Attention**: 
+  - **Algorithm**: Multi-head attention for modeling global relationships
+  - **Implementation**: Uses PyTorch's nn.MultiheadAttention with batch_first=True
+  - **Formula**: Attention(Q, K, V) = softmax(QK^T/√d_k)V
+  - **Key feature**: Handles masking for padded positions
+
+- **Pre-Normalization**: 
+  - **Algorithm**: LayerNorm before each sub-module instead of after
+  - **Implementation**: Applied before attention and feed-forward networks
+  - **Formula**: LayerNorm(x) = γ * (x - μ) / (σ + ε) + β
+  - **Key feature**: Improves training stability in deep networks
+
+- **Pair Representation Updates**: 
+  - **Algorithm**: Outer product-based updates for capturing residue-pair interactions
+  - **Implementation**: Combines residue features from positions i and j with existing pair features
+  - **Formula**: Combines h_i, h_j, and pair_ij through concatenation and MLP projection
+  - **Key feature**: Efficiently captures interactions between residue pairs
+
+#### IPA Module (V1)
+
+- **Coordinate Prediction**: 
+  - **Algorithm**: Simple MLP projection from residue features to 3D coordinates
+  - **Implementation**: Two-layer neural network with ReLU activation
+  - **Formula**: coords = MLP(residue_repr)
+  - **Key feature**: Placeholder that establishes interface for future V2 implementation
+
+#### Data Structures
+
+- **Residue Representations**: Dense tensors of shape (batch_size, seq_len, residue_dim)
+- **Pair Representations**: Dense tensors of shape (batch_size, seq_len, seq_len, pair_dim)
+- **Masks**: Boolean tensors of shape (batch_size, seq_len) where True indicates valid positions
+- **Configuration Dictionary**: Shared parameter repository for all components
 
 ### 6.3 Performance Considerations
 
+#### Computational Complexity
+
 - **Time complexity**:
-  - EmbeddingModule: O(L + L²) where L is sequence length
-  - TransformerBlock: O(L²) for self-attention, O(L²) for pair updates
-  - IPAModule V1: O(L) for coordinate prediction
-- **Space complexity**:
-  - EmbeddingModule: O(L²) for pair representations
-  - TransformerBlock: O(L²) for attention weights and pair representations
-  - IPAModule V1: O(L) for coordinates
-- **Bottlenecks**:
-  - Self-attention for long sequences (quadratic complexity)
-  - Pair representation memory usage (quadratic in sequence length)
-- **Optimization opportunities**:
-  - Linear attention variants for TransformerBlock
-  - Sparse representation for pair matrices
-  - Mixed precision training for GPU acceleration
+  - **EmbeddingModule**: 
+    - Sequence embedding: O(B × L) where B is batch size and L is sequence length
+    - Relative position encoding: O(B × L²) for constructing the full pair representation
+    - Overall: O(B × L²) dominated by pair operations
+  - **TransformerBlock**: 
+    - Self-attention: O(B × L² × H) where H is the number of heads
+    - Pair updates: O(B × L² × P) where P is the pair dimension
+    - Overall: O(B × L² × max(H, P))
+  - **IPAModule V1**: 
+    - MLP projection: O(B × L × D) where D is the residue dimension
+    - Overall: O(B × L × D)
+  - **Complete Pipeline**: O(B × L² × max(H, P) × N) where N is the number of transformer layers
+
+#### Memory Complexity
+
+- **EmbeddingModule**:
+  - Parameters: O(V × D + D²) where V is vocabulary size
+  - Activations: O(B × L² × P) dominated by pair representations
+  - Peak memory: O(B × L² × P)
+  
+- **TransformerBlock**:
+  - Parameters: O(D² + P²) for projection matrices
+  - Activations: O(B × L² × H) for attention and O(B × L² × P) for pair representations
+  - Peak memory: O(B × L² × max(H, P))
+  
+- **IPAModule V1**:
+  - Parameters: O(D × D_ipa) where D_ipa is the IPA hidden dimension
+  - Activations: O(B × L × D)
+  - Peak memory: O(B × L × D)
+
+- **Overall System**:
+  - Parameters: O(V × D + N × (D² + P²) + D × D_ipa)
+  - Activations: O(B × L² × max(H, P) × N)
+  - Peak memory: O(B × L² × max(H, P) × N)
+
+#### Bottlenecks and Optimizations
+
+- **Memory Bottlenecks**:
+  - **Pair representations**: O(L²) scaling creates memory pressure with long sequences
+    - **Mitigation**: Consider sparse representations or factorized approximations
+    - **Threshold**: Becomes critical for sequences longer than 200-300 nucleotides
+  
+  - **Self-attention**: O(L²) attention maps consume significant memory
+    - **Mitigation**: Consider linear attention variants (O(L) complexity)
+    - **Impact**: Critical for training with large batch sizes
+
+  - **Batch size limitations**: Memory scales linearly with batch size
+    - **Mitigation**: Use gradient accumulation for effective larger batches
+    - **Trade-off**: Slower training but equivalent optimization
+
+- **Computational Bottlenecks**:
+  - **Self-attention computation**: Quadratic complexity in sequence length
+    - **Mitigation**: Explore approximate attention methods
+    - **Impact**: Significant for inference latency with long sequences
+  
+  - **Pair representation updates**: O(L²) operations for each update
+    - **Mitigation**: Consider sparsification based on structural priors
+    - **Trade-off**: Reduced expressivity for better performance
+
+- **Optimization Opportunities**:
+  - **Mixed precision training**: Use FP16 for most operations to reduce memory and increase speed
+    - **Implementation**: Wrap model with PyTorch's automatic mixed precision
+    - **Expected gain**: 30-50% memory reduction, 20-30% speedup on compatible GPUs
+  
+  - **Sparse operations**: Convert pair matrices to sparse format for long sequences
+    - **Implementation**: Use PyTorch's sparse tensor operations
+    - **Expected gain**: Near-linear scaling with sequence length for very sparse matrices
+  
+  - **Operation fusion**: Fuse multiple operations in transformer implementation
+    - **Implementation**: Custom CUDA kernels or optimized PyTorch functions
+    - **Expected gain**: 10-20% speedup in transformer blocks
+
+#### Hardware Considerations
+
+- **GPU Memory Requirements**:
+  - 8GB GPU: Suitable for sequences up to ~200 nucleotides with batch size 4
+  - 16GB GPU: Can handle sequences up to ~400 nucleotides with batch size 4
+  - 24GB+ GPU: Required for sequences >500 nucleotides or larger batch sizes
+  
+- **CPU vs GPU Performance**:
+  - CPU execution: ~10-20x slower than GPU for typical workloads
+  - Multi-threading: Achieves ~70-80% scaling efficiency on CPU
+  
+- **Inference Optimization**:
+  - Model quantization: INT8 quantization can reduce memory by 4x
+  - Batch inference: Critical for throughput optimization
 
 ## 7. Extension and Maintenance
 

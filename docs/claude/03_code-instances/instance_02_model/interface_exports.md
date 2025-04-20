@@ -289,12 +289,113 @@ coords = ipa_module(residue_repr, pair_repr, mask)
 
 ## 6. Integration Notes
 
-When integrating these components:
+### 6.1 Core Integration Requirements
 
-1. **Initialization**: All components should be initialized with a consistent config dictionary
-2. **Batch Structure**: The EmbeddingModule expects the batch structure from the data loader
-3. **Mask Propagation**: Always propagate the mask through all components to handle variable-length sequences
-4. **Device Handling**: All components support moving to GPU with `.to('cuda')`
-5. **Gradient Flow**: All operations support autograd for end-to-end training
+1. **Consistent Configuration**:
+   - All components must be initialized with a consistent config dictionary
+   - Configuration parameters should be validated for compatibility between components
+   - Example: `residue_embed_dim` must be the same across all components
 
-For the full model integration, these components should be combined as shown in the usage examples, with the number of transformer blocks determined by model complexity requirements.
+2. **Tensor Shape Contracts**:
+   - **Residue representations**: Always (batch_size, seq_len, residue_dim)
+   - **Pair representations**: Always (batch_size, seq_len, seq_len, pair_dim)
+   - **Masks**: Always (batch_size, seq_len) with dtype=torch.bool
+   - **Coordinates**: Always (batch_size, seq_len, 3)
+
+3. **Batch Structure**:
+   - EmbeddingModule expects the exact batch structure from the data_loading module
+   - Required fields: 'sequence_int', 'dihedral_features', 'pairing_probs', 'positional_entropy', 'coupling_matrix', 'accessibility', 'mask'
+   - Optional fields: 'conservation' (controlled by use_conservation config)
+
+### 6.2 Mask Handling Protocol
+
+1. **Mask Format**:
+   - Boolean tensors where True indicates valid positions, False indicates padding
+   - Shape: (batch_size, seq_len)
+   - Must be passed consistently through all components
+
+2. **Mask Propagation**:
+   - **EmbeddingModule**: Creates 1D and 2D masks for residue and pair representations
+   - **TransformerBlock**: Uses mask for both attention and element-wise operations
+   - **IPAModule**: Applies mask to zero out coordinates for padded positions
+
+3. **Common Mask-Related Issues**:
+   - Forgetting to use key_padding_mask in nn.MultiheadAttention (True/False semantics reversed)
+   - Failing to apply the mask after residual connections
+   - Not converting bool mask to float for element-wise operations
+
+### 6.3 Device Handling Protocol
+
+1. **Component Movement**:
+   - All components inherit from nn.Module and support .to(device) operation
+   - All components handle CPU and CUDA tensors appropriately
+   - Example: `model.to('cuda')` moves all parameters and buffers to GPU
+
+2. **Tensor Device Consistency**:
+   - Input tensors must be on the same device as the model
+   - Batch dictionary should be moved to the correct device before passing to EmbeddingModule
+   - Example:
+     ```python
+     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+     model = model.to(device)
+     batch = {k: v.to(device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
+     ```
+
+3. **Device-Specific Optimizations**:
+   - For CUDA, consider enabling mixed precision with torch.cuda.amp
+   - For CPU, ensure operations utilize multiple cores effectively
+
+### 6.4 Gradient Flow and Training
+
+1. **Gradient Propagation**:
+   - All operations support autograd for end-to-end training
+   - No gradient detachment occurs within components unless explicitly noted
+   - Mask operations are implemented to preserve gradient flow on valid positions
+
+2. **Numerical Stability**:
+   - Pre-normalization architecture provides better gradient stability
+   - All components include epsilon terms in sensitive operations
+   - Consider gradient clipping for stable training: `torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)`
+
+### 6.5 Integration Example for Full Model
+
+For the full RNAFoldingModel integration, components should be combined as follows:
+
+```python
+class RNAFoldingModel(nn.Module):
+    def __init__(self, config: Dict):
+        super().__init__()
+        
+        # Initialize components
+        self.embedding_module = EmbeddingModule(config)
+        
+        # Multiple transformer layers
+        self.num_layers = config.get("num_layers", 4)
+        self.transformer_blocks = nn.ModuleList([
+            TransformerBlock(config) for _ in range(self.num_layers)
+        ])
+        
+        # Coordinate prediction
+        self.ipa_module = IPAModule(config)
+    
+    def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        # Get initial representations from embedding module
+        residue_repr, pair_repr, mask = self.embedding_module(batch)
+        
+        # Process through transformer blocks
+        for transformer in self.transformer_blocks:
+            residue_repr, pair_repr = transformer(residue_repr, pair_repr, mask)
+        
+        # Predict coordinates
+        coords = self.ipa_module(residue_repr, pair_repr, mask)
+        
+        # Return predictions
+        return {
+            "predicted_coords": coords,
+            "residue_repr": residue_repr,
+            "pair_repr": pair_repr,
+            "mask": mask
+        }
+```
+
+This full model implementation maintains all the necessary tensor shape contracts, mask propagation, and device handling requirements established by the individual components.

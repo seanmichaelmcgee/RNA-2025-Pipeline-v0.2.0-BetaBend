@@ -264,15 +264,18 @@ with torch.no_grad():
    - Full test coverage with integration tests and edge case handling
    - Metadata flag system for tracking feature presence
 
-2. **Next: Develop Core Model Components**
-   - Implement embedding and transformer modules
-   - Create IPA module placeholder with coordinate prediction
-   - Test shape transformations and mask propagation
+2. **Core Neural Network Components** ✅
+   - Embedding module with sequence and positional encodings
+   - Pre-norm transformer block with residue and pair representation updates
+   - IPA module placeholder with coordinate prediction interface
+   - Comprehensive testing for shape transformations and mask propagation
+   - Full documentation and interface specifications
 
-3. **Integrate Full Model Architecture**
-   - Assemble components into end-to-end model
+3. **Next: Integrate Full Model Architecture**
+   - Assemble components into end-to-end RNAFoldingModel
    - Implement loss functions with proper weighting
    - Create training loop and evaluation metrics
+   - Test with real RNA sequences and features
 
 4. **Comprehensive Testing and Optimization**
    - Validate with synthetic data and real examples
