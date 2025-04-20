@@ -19,10 +19,10 @@ Update this file throughout development to document project-specific details and
 
 ## Required Documentation Structure
 
-Before beginning implementation, establish these three key organizational documents:
+Before beginning implementation, establish these key organizational documents:
 
 ### 1. Implementation Journal
-- **Location**: `docs/claude/03_code-instances/instance_[XX]_[name]/implementation_journal.md`
+- **Location**: `docs/claude/03_code-instances/instance_01_data/implementation_journal.md`
 - **Purpose**: Chronological record of all implementation sessions, decisions, and issues
 - **Format**: Follow template at `docs/claude/03_code-instances/shared/04_implementation_jorunal_template.md`
 - **Usage**: 
@@ -31,17 +31,29 @@ Before beginning implementation, establish these three key organizational docume
   - Record challenges and their resolutions
   - Note any questions for other instances
   - Track next steps for upcoming sessions
+  - Register component completions and handoff preparations
 
 ### 2. Completed Components List
-- **Location**: `docs/claude/03_code-instances/instance_[XX]_[name]/completed_components.md`
+- **Location**: `docs/claude/03_code-instances/instance_01_data/completed_components.md`
 - **Purpose**: Track progress of individual components with current status
 - **Format**:
   ```markdown
   # Completed Components Tracker
   
-  | Component | Status | Test Coverage | Interface Doc | Last Updated |
-  |-----------|--------|---------------|--------------|--------------|
-  | [component_name] | [Not Started/In Progress/Completed] | [0-100%] | [Yes/No] | YYYY-MM-DD |
+  | Component | Status | Test Coverage | Interface Doc | Handoff Status | Last Updated |
+  |-----------|--------|---------------|--------------|----------------|--------------|
+  | [component_name] | [Not Started/In Progress/Completed] | [0-100%] | [Yes/No] | [Not Ready/Ready/Handed Off] | YYYY-MM-DD |
+  ```
+
+### 3. Handoff Documentation
+- **Location**: `docs/claude/03_code-instances/instance_01_data/handoffs/YYYY-MM-DD_[component_name]_handoff.md`
+- **Purpose**: Formal documentation for component handoffs to other instances
+- **Format**: Follow template at `docs/claude/03_code-instances/shared/component_handoff_template.md`
+- **Usage**:
+  - Create for each major component or logical group when completed
+  - Include interface contracts, usage examples, verification steps
+  - Update when component implementations change
+  - Reference from implementation journal when components are completed
 
 ## Core Responsibilities
 You are responsible for implementing the following components:
@@ -179,6 +191,13 @@ Implement components in this specific sequence to ensure logical progression:
           # More assertions...
       ```
 
+11. **Component Handoff Documentation**:
+    - Prepare handoff documentation for completed components
+    - Create interface contracts for all public interfaces
+    - Document tensor shapes, types, and behavior
+    - Provide verification examples and test commands
+    - Update component status tracker with handoff status
+
 ## Reference Documents
 Refer to these documents for implementation details:
 
@@ -189,12 +208,17 @@ Refer to these documents for implementation details:
   - `docs/claude/components/10_data_loading/12_data_loading_examples.md` - Usage examples
   - `docs/claude/components/10_data_loading/13_data_loading_testing.md` - Testing strategy
   - `docs/data_examples/train_features_example.md` - Example feature file structure
-  - `docs/claude/03_code-instances/15_data_loading_v2_readiness_risks.md` - V2 readiness considerations
+  - `docs/claude/02_components/10_data_loading/15_data_loading_v2_readiness_risks.md` - V2 readiness considerations
 
 - **Supporting Documents**:
   - `docs/claude/01_implementation_principles.md` - Core implementation principles
   - `docs/4_Product_Requirements_V1.md` - Requirements DL-01 to DL-08
   - `docs/3_Architecture_Specification.md` - Overall architecture
+
+- **Handoff References**:
+  - `docs/claude/03_code-instances/shared/component_handoff_template.md` - Template for handoff documents
+  - `docs/claude/03_code-instances/shared/06_component_handoff_protocol.md` - Formal handoff protocol
+  - `docs/claude/03_code-instances/shared/07_component_status_tracker.md` - Global component tracker
 
 ## Communication Guidelines
 Follow these guidelines for communication with other instances:
@@ -213,18 +237,67 @@ Follow these guidelines for communication with other instances:
   - Document assumptions made during implementation
 
 - **Handoff to Instance 03 (Integration)**:
-  - Prepare detailed documentation about batch format and tensor shapes
+  - Create formal handoff documentation using the template
+  - Include complete interface contracts with tensor shapes and types
+  - Provide specific verification test commands
   - Document mask format for attention mechanisms (True for valid positions)
-  - Explain handling of variable-length sequences
   - Specify which features may be missing and their default values
   - Document metadata flags and their meanings (has_dihedrals, has_msa, etc.)
-  - Explain feature availability filtering and how to handle dataset updates
+  - Request formal acknowledgment from receiving instance
+  - Document any resolved issues or clarifications
 
 - **Coordination with Instance 04 (Testing)**:
   - Share test strategies and edge cases being tested
   - Clarify expected behavior for error conditions
   - Document handling of mixed-presence features
   - Explain testing approach for partial feature availability
+
+## Handoff Protocol and Documentation
+
+When handing off completed components to other instances, follow this structured protocol:
+
+### Handoff Documentation Requirements
+- Use the formal template at `docs/claude/03_code-instances/shared/component_handoff_template.md`
+- Complete ALL sections in the template with thorough detail
+- Include working examples of component usage
+- Document any deviations from original specifications
+- Provide comprehensive interface contracts with tensor shapes and types
+
+### Handoff Process
+1. **Preparation Phase**:
+   - Ensure component meets all success criteria
+   - Verify tests pass with ≥90% coverage
+   - Create interface documentation with complete specifications
+   - Update implementation journal with completion status
+
+2. **Formal Handoff Initiation**:
+   - Create handoff document in `docs/claude/03_code-instances/instance_01_data/handoffs/`
+   - Use naming convention: `YYYY-MM-DD_[component_name]_handoff.md`
+   - Fill all sections of the handoff template
+   - Update the component status in `docs/claude/03_code-instances/shared/07_component_status_tracker.md`
+
+3. **Notification and Consumer Verification**:
+   - Notify receiving instance of handoff completion
+   - Provide specific verification steps and test commands
+   - Request acknowledgment within defined timeframe
+   - Be available for clarifications or questions
+
+4. **Issue Resolution**:
+   - If issues are identified during verification, document using the issue report template
+   - Work collaboratively with receiving instance to resolve interface mismatches
+   - Document resolution process and any interface changes
+   - Update handoff documentation with final resolution
+
+5. **Final Acceptance**:
+   - Obtain formal acknowledgment from receiving instance
+   - Update status tracker with completed handoff status
+   - Record completion in implementation journal
+
+### Verification Requirements
+- Include specific test commands to verify component functionality
+- Document expected output shapes and formats
+- Provide edge case examples for testing
+- List any known limitations or constraints
 
 ## Code Standards
 Adhere to these standards throughout implementation:
@@ -397,5 +470,13 @@ Your implementation will be considered successful when:
    - Produces informative error messages
    - Handles uniform MI matrices appropriately
    - Efficiently updates available features when new data is added
+
+7. **Complete Handoff Documentation**:
+   - Formal handoff documents created for all completed components
+   - Interface contracts with tensor shapes and types
+   - Verification test commands and expected outputs
+   - Working examples of component usage
+   - Documented deviations from specifications
+   - Receiving instances have acknowledged handoffs
 
 The most critical criterion is strict adherence to path parameterization - there must be NO hardcoded paths in any `src/` modules. All paths must be passed as parameters and constructed using `os.path.join()`. Additionally, the implementation must follow the V2 readiness guidelines to facilitate future extensions and properly handle the scenario where only some sequences have features available.
