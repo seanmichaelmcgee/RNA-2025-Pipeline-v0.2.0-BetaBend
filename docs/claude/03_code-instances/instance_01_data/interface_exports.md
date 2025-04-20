@@ -26,8 +26,9 @@ batch = {
     "meta": {
         "has_dihedrals": torch.Tensor,       # (batch_size), dtype: bool
         "has_thermo": torch.Tensor,          # (batch_size), dtype: bool
-        "has_msa": torch.Tensor,             # (batch_size), dtype: bool
-        "is_train": torch.Tensor,            # (batch_size), dtype: bool
+        "has_msa": torch.Tensor,             # (batch_size), dtype: bool - TRUE only if MI exists AND is valid
+        "before_cutoff": torch.Tensor,       # (batch_size), dtype: bool - TRUE if sequence is before temporal cutoff
+        "is_train": torch.Tensor,            # (batch_size), dtype: bool - Indicates train vs validation
     }
 }
 ```
@@ -65,6 +66,9 @@ def create_data_loader(
         
     Returns:
         DataLoader object that yields batches in the format specified above
+        with methods:
+            * set_temporal_cutoff(new_cutoff) - Change temporal cutoff dynamically
+            * update_available_features() - Rescan for new available features
     """
     pass
 ```
@@ -117,10 +121,18 @@ class RNADataset(torch.utils.data.Dataset):
         """Update the list of available features.
         
         Rescans the features directory to identify newly available feature files
-        and updates the filtered sequence list accordingly.
+        and updates the filtered sequence list accordingly, maintaining temporal boundaries.
         
         Returns:
             Number of sequences with complete feature sets
+        """
+        pass
+        
+    def set_temporal_cutoff(self, new_cutoff: Optional[str] = None) -> None:
+        """Update the temporal cutoff and refilter sequences.
+        
+        Args:
+            new_cutoff: New temporal cutoff date or None to remove cutoff
         """
         pass
 ```
@@ -128,6 +140,30 @@ class RNADataset(torch.utils.data.Dataset):
 ## Feature Loading Interfaces
 
 ```python
+def is_uniform_top_pairs(top_pairs: np.ndarray, epsilon: float = 1e-6) -> bool:
+    """Check if top pairs from MI features have uniform scores, indicating a single sequence MSA.
+    
+    Args:
+        top_pairs: Array of shape (P, 3) with format [pos_i, pos_j, score]
+        epsilon: Threshold for standard deviation to consider uniform
+        
+    Returns:
+        True if all scores are effectively identical
+    """
+    pass
+
+def is_uniform_mi_matrix(matrix: np.ndarray, epsilon: float = 1e-6) -> bool:
+    """Check if an MI matrix contains uniform values, indicating a single sequence MSA.
+    
+    Args:
+        matrix: Mutual information matrix
+        epsilon: Threshold for standard deviation to consider uniform
+        
+    Returns:
+        True if matrix appears to have uniform off-diagonal values
+    """
+    pass
+
 def check_features_availability(
     target_id: str, 
     features_dir: str
@@ -145,23 +181,33 @@ def check_features_availability(
     
 def load_precomputed_features(
     target_id: str, 
-    features_dir: str
-) -> Dict[str, Union[np.ndarray, torch.Tensor]]:
+    features_dir: str,
+    temporal_cutoff: Optional[str] = None
+) -> Dict[str, Union[Dict[str, np.ndarray], None]]:
     """Load all available precomputed features for a given target.
     
     Args:
         target_id: The ID of the target RNA sequence
         features_dir: Directory containing feature subdirectories
+        temporal_cutoff: Optional date string for temporal filtering
         
     Returns:
-        Dictionary containing all available features
+        Dictionary of feature dictionaries with structure:
+        {
+            'dihedral': {'features': array(...)},
+            'thermo': {'pairing_probs': array(...), 'mfe': value, ...},
+            'evolutionary': {
+                'coupling_matrix': array(...),
+                'has_valid_mi': bool  # True if MI data is meaningful (not uniform)
+            }
+        }
     """
     pass
     
 def load_coordinates(
     labels_df: pd.DataFrame, 
     target_id: str
-) -> torch.Tensor:
+) -> Tuple[np.ndarray, List[str]]:
     """Load C1' coordinates for a given target from labels DataFrame.
     
     Args:
@@ -169,7 +215,7 @@ def load_coordinates(
         target_id: The ID of the target RNA sequence
         
     Returns:
-        Tensor of shape (seq_len, 3) containing C1' coordinates
+        Tuple of (coordinates array of shape (N, 3), list of residue names)
     """
     pass
     
