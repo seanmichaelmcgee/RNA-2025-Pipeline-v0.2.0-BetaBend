@@ -25,12 +25,17 @@ data/
 │   └── train_labels.csv      # Ground truth 3D coordinates
 └── processed/                # Precomputed features
     ├── dihedral_features/    # Backbone geometry features
-    │   └── {target_id}_dihedral_features.npz
+    │   └── {target_id}_dihedral_features.npz   # May exist for only some targets
     ├── thermo_features/      # Thermodynamic folding features
-    │   └── {target_id}_thermo_features.npz
+    │   └── {target_id}_thermo_features.npz     # May exist for only some targets
     └── mi_features/          # Mutual information/evolutionary features
-        └── {target_id}_mi_features.npz
+        └── {target_id}_mi_features.npz         # May exist for only some targets
 ```
+
+**Note on Partial Data**: The pipeline is designed to work with incomplete feature sets. It can:
+1. Filter the dataset to only use sequences with available features
+2. Dynamically detect which features are available for each sequence
+3. Update and incorporate new features as they become available during development
 
 ### Feature File Details
 
@@ -55,14 +60,22 @@ data/
 - `RNADataset`: PyTorch Dataset for loading RNA sequences and precomputed features
 - `collate_fn`: Handles variable-length sequences with proper padding and masking
 - Feature normalization and default handling for missing features
+- **Partial Data Support**: Handles scenarios where only a subset of sequences have features
+  - Filters sequences based on feature availability
+  - Updates dataset when new features become available
+  - Tracks feature presence with metadata flags
 
 ```python
-# Example usage
+# Example usage with partial data
 dataset = RNADataset(
     sequences_csv_path=config.sequences_path,
     labels_csv_path=config.labels_path,
-    features_dir=config.features_dir
+    features_dir=config.features_dir,
+    require_features=True  # Only use sequences with available features
 )
+
+# When new features are added to the features directory:
+dataset.update_available_features()  # Rescan and update available sequences
 ```
 
 ### 2. Embeddings (`src/models/embeddings.py`)
@@ -247,7 +260,8 @@ with torch.no_grad():
 1. **Complete Data Pipeline Implementation**
    - Finalize feature loading with robust error handling
    - Implement efficient batch collation for variable sequences
-   - Add comprehensive test coverage
+   - Extend partial data handling for progressive feature addition
+   - Add comprehensive test coverage for feature availability scenarios
 
 2. **Develop Core Model Components**
    - Implement embedding and transformer modules
