@@ -4,7 +4,55 @@
 
 You are the Integration instance responsible for assembling the complete RNA 3D folding model architecture by combining individual components into a cohesive pipeline. Your primary focus is implementing the main `RNAFoldingModel` class that integrates embeddings, transformer blocks, and prediction heads, along with the loss functions needed for optimization. You serve as the critical bridge between component development and end-to-end functionality, ensuring proper data flow, correct assembly, and appropriate loss computation for the training process.
 
+## Kickoff Reference
+This document is located at: `docs/claude/03_code-instances/03_integration_kickoff.md`
+
+## Claude.md Configuration
+This instance should maintain its own `CLAUDE.md` file located at `docs/claude/03_code-instances/instance_03_integration/CLAUDE.md`. This file should contain:
+- Integration patterns for connecting model components
+- Loss function implementation techniques and numerical stability approaches
+- Configuration management for the full model assembly
+- Testing strategies for end-to-end verification
+- Memory optimization techniques for training loops
+- Gradient flow and backpropagation patterns
+
+Update this file throughout development to document integration-specific implementation patterns and commands that should be readily available to Claude Code when working with the assembled model and loss functions.
+
+
+## Required Documentation Structure
+
+Before beginning implementation, establish these three key organizational documents:
+
+### 1. Implementation Journal
+- **Location**: `docs/claude/03_code-instances/instance_[XX]_[name]/implementation_journal.md`
+- **Purpose**: Chronological record of all implementation sessions, decisions, and issues
+- **Format**: Follow template at `docs/claude/03_code-instances/shared/04_implementation_jorunal_template.md`
+- **Usage**: 
+  - Update after each implementation session
+  - Document deviations from specifications
+  - Record challenges and their resolutions
+  - Note any questions for other instances
+  - Track next steps for upcoming sessions
+
+### 2. Completed Components List
+- **Location**: `docs/claude/03_code-instances/instance_[XX]_[name]/completed_components.md`
+- **Purpose**: Track progress of individual components with current status
+- **Format**:
+  ```markdown
+  # Completed Components Tracker
+  
+  | Component | Status | Test Coverage | Interface Doc | Last Updated |
+  |-----------|--------|---------------|--------------|--------------|
+  | [component_name] | [Not Started/In Progress/Completed] | [0-100%] | [Yes/No] | YYYY-MM-DD |
+
+
 ## Core Responsibilities
+
+- **FIRST TASK: Update and Maintain Documentation**:
+  - Review and update this kickoff document if necessary to align with project needs
+  - Ensure all documentation reflects current understanding of interfaces
+  - Keep implementation journals current with progress and decisions
+  - Maintain interface contracts as implementations evolve
 
 - Implement `src/models/rna_folding_model.py`:
   - Main `RNAFoldingModel` class (MA-01, MA-02) as a PyTorch `nn.Module`
@@ -32,14 +80,20 @@ You are the Integration instance responsible for assembling the complete RNA 3D 
 
 ## Implementation Order
 
-1. **Loss Functions Implementation** (`src/losses.py`):
+1. **Documentation and Self-Organization**:
+   - Update this kickoff document with any necessary clarifications or additions
+   - Ensure CLAUDE.md is properly structured and contains necessary guidance
+   - Create initial interface contracts for components you will be developing
+   - Set up implementation journal structure for tracking progress
+
+2. **Loss Functions Implementation** (`src/losses.py`):
    - Implement `compute_fape_loss` function (simplified Kabsch-based proxy)
    - Implement `compute_confidence_loss` function (lDDT proxy)
    - Implement `compute_angle_loss` function (sin/cos comparison)
    - Implement `compute_combined_loss` helper function
    - Write tests for all loss functions (`tests/test_losses.py`)
 
-2. **RNAFoldingModel Implementation** (`src/models/rna_folding_model.py`):
+3. **RNAFoldingModel Implementation** (`src/models/rna_folding_model.py`):
    - Define model structure and initialize components from config
    - Calculate input dimensions and implement projection layers
    - Stack transformer blocks from instance 02
@@ -48,7 +102,7 @@ You are the Integration instance responsible for assembling the complete RNA 3D 
    - Ensure proper mask propagation through components
    - Write tests for the model (`tests/test_model.py`)
 
-3. **Integration Tests Support**:
+4. **Integration Tests Support**:
    - Assist with creating basic test script(s) showing end-to-end flow
    - Verify compatibility between data loading, model, and loss functions
    - Support development of memory profiling and gradient flow checks
@@ -61,16 +115,16 @@ You are the Integration instance responsible for assembling the complete RNA 3D 
 - `docs/6_Tactical_Plan_V1.md` - Sections III.4 and IV for implementation guidance
 
 ### Implementation Guides
-- `docs/claude/workflows/60_model_integration.md` - Complete integration workflow
-- `docs/claude/components/50_losses/guide.md` - Detailed loss implementation guide
-- `docs/claude/components/50_losses/examples.md` - Example implementations for losses
-- `docs/claude/components/50_losses/testing.md` - Testing strategies for loss functions
+- `docs/claude/05_workflows/60_model_integration.md` - Complete integration workflow
+- `docs/claude/02_components/50_losses/51_losses_guide.md` - Detailed loss implementation guide
+- `docs/claude/02_components/50_losses/52_losses_examples.md` - Example implementations for losses
+- `docs/claude/02_components/50_losses/53_losses_tests.md` - Testing strategies for loss functions
 
 ### Component Interface Contracts
-- `docs/claude/code-instances/shared/interface_specifications/RNADataset_v1.0.md` - Data batch format
-- `docs/claude/code-instances/shared/interface_specifications/SequenceEmbedding_v1.0.md` - Embedding interface
-- `docs/claude/code-instances/shared/interface_specifications/TransformerBlock_v1.0.md` - Transformer interface
-- `docs/claude/code-instances/shared/interface_specifications/IPAModule_v1.0.md` - IPA placeholder interface
+- `docs/claude/03_code-instances/shared/interface_specifications/RNADataset_v1.0.md` - Data batch format
+- `docs/claude/03_code-instances/shared/interface_specifications/SequenceEmbedding_v1.0.md` - Embedding interface
+- `docs/claude/03_code-instances/shared/interface_specifications/TransformerBlock_v1.0.md` - Transformer interface
+- `docs/claude/03_code-instances/shared/interface_specifications/IPAModule_v1.0.md` - IPA placeholder interface
 
 ### Code Guidelines
 - `docs/claude/01_implementation_principles.md` - Core implementation principles
@@ -118,6 +172,7 @@ You are the Integration instance responsible for assembling the complete RNA 3D 
 - Note memory and performance considerations
 - Include complete interface contracts for all implemented components
 - Update implementation journal with progress, challenges, and decisions
+- Record all decisions in the implementation journal at `docs/claude/03_code-instances/instance_03_integration/implementation_journal.md`
 
 ## Code Standards
 

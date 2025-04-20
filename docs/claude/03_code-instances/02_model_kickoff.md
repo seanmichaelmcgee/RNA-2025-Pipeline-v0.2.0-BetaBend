@@ -4,6 +4,49 @@
 
 You are responsible for implementing the core neural network architecture components of the RNA 3D folding model. Your focus is on developing the foundation of the model's computational capabilities - the tensor transformations, attention mechanisms, and structural prediction components. You will create PyTorch modules that transform RNA sequence and feature representations into progressively refined representations, ultimately leading to 3D coordinate prediction. For V1, you will implement the embedding layers, transformer blocks with standard attention, and a simplified placeholder for the IPA module, establishing the core interfaces while allowing for future refinement.
 
+## Kickoff Reference
+This document is located at: `docs/claude/03_code-instances/02_model_kickoff.md`
+
+## Claude.md Configuration
+This instance should maintain its own `CLAUDE.md` file located at `docs/claude/03_code-instances/instance_02_model/CLAUDE.md`. This file should contain:
+
+- Standard PyTorch module templates and implementation patterns
+- Common tensor shape transformations and mask handling techniques
+- Standard configuration parameter structures and validation approaches
+- Testing commands for model components
+- Device management patterns and best practices
+- Memory optimization techniques for transformer-based models
+
+Update this file throughout development to document model-specific implementation patterns and commands that should be readily available to Claude Code when working with neural network components.
+
+
+## Required Documentation Structure
+
+Before beginning implementation, establish these three key organizational documents:
+
+### 1. Implementation Journal
+- **Location**: `docs/claude/03_code-instances/instance_[XX]_[name]/implementation_journal.md`
+- **Purpose**: Chronological record of all implementation sessions, decisions, and issues
+- **Format**: Follow template at `docs/claude/03_code-instances/shared/04_implementation_jorunal_template.md`
+- **Usage**: 
+  - Update after each implementation session
+  - Document deviations from specifications
+  - Record challenges and their resolutions
+  - Note any questions for other instances
+  - Track next steps for upcoming sessions
+
+### 2. Completed Components List
+- **Location**: `docs/claude/03_code-instances/instance_[XX]_[name]/completed_components.md`
+- **Purpose**: Track progress of individual components with current status
+- **Format**:
+  ```markdown
+  # Completed Components Tracker
+  
+  | Component | Status | Test Coverage | Interface Doc | Last Updated |
+  |-----------|--------|---------------|--------------|--------------|
+  | [component_name] | [Not Started/In Progress/Completed] | [0-100%] | [Yes/No] | YYYY-MM-DD |
+
+
 ## Core Responsibilities
 
 ### Primary Implementation Tasks:
@@ -75,21 +118,21 @@ You are responsible for implementing the core neural network architecture compon
 - **[Product Requirements V1](../../../4_Product_Requirements_V1.md)**: Requirements MA-03, MA-05, and MA-07
 
 ### Component Implementation Guides
-- **[Embeddings Guide](../../components/20_embeddings/embeddings_guide.md)**: Detailed implementation for embedding components
-- **[Transformer Block Guide](../../components/30_transformer_block/transformer_guide.md)**: Transformer implementation details
-- **[IPA Module Guide](../../components/40_ipa_module/ipa_guide.md)**: IPA module placeholder implementation
+- **[Embeddings Guide](../../components/20_embeddings/21_embeddings_guide.md)**: Detailed implementation for embedding components
+- **[Transformer Block Guide](../../components/30_transformer_block/31_transformer_guide.md)**: Transformer implementation details
+- **[IPA Module Guide](../../components/40_ipa_module/41_ipa_guide.md)**: IPA module placeholder implementation
 
 ### Implementation Principles
 - **[Implementation Principles](../../01_implementation_principles.md)**: PyTorch patterns, error handling, documentation standards
 - **[AI Agent Rules](../../7_AI_Agent_Rules.md)**: Modularity (Rule 2.4), path parameterization (Rule 7.2), test-driven development (Rule 3)
 
 ### Data Interface Documents
-- **[Data Loading Examples](../../components/10_data_loading/data_loading_examples.md)**: Understanding data structure from 01_data_pipeline
-- **[Feature Formats](../../feature_formats.md)**: Understanding tensor shapes from feature extraction
+- **[Data Loading Examples](../../components/10_data_loading/12_data_loading_examples.md)**: Understanding data structure from 01_data_pipeline
+- **[Feature Formats](../../04_reference/feature_formats.md)**: Understanding tensor shapes from feature extraction
 
 ### Multi-Instance Coordination
-- **[Component Handoff Protocol](../shared/handoff_templates/protocol.md)**: Protocol for handoffs to 03_integration instance
-- **[Interface Contract Template](../shared/interface_specifications/template.md)**: Template for documenting component interfaces
+- **[Component Handoff Protocol](../shared/06_component_handoff_protocol.md)**: Protocol for handoffs to 03_integration instance
+- **[Interface Contract Template](../shared/05_interface_contract_template.md)**: Template for documenting component interfaces
 
 ## Communication Guidelines
 
@@ -117,7 +160,7 @@ You are responsible for implementing the core neural network architecture compon
 ### Resolving Ambiguities
 - If architecture specifications are ambiguous, first reference the detailed component guides
 - If still unclear, ask clarifying questions, providing specific references to documentation
-- Document any design decisions made due to ambiguities in the implementation journal
+- Document any design decisions made due to ambiguities in the implementation journal at `docs/claude/03_code-instances/instance_02_model/implementation_journal.md`
 
 ## Code Standards
 
@@ -246,3 +289,4 @@ Your implementation is successful when:
    - Limitations of V1 simplifications are clearly documented
 
 When these criteria are met, your component responsibilities are fulfilled, providing a solid foundation for the RNA 3D folding model.
+

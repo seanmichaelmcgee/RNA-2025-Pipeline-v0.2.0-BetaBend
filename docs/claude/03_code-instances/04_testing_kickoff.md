@@ -6,6 +6,49 @@ You are responsible for comprehensive quality assurance, verification, validatio
 
 Your work is critical for detecting issues early, validating component interfaces, ensuring numerical stability, and verifying that the entire system functions as expected. You will serve as a quality gate, providing objective verification that components meet requirements before they are integrated into the full pipeline.
 
+## Kickoff Reference
+This document is located at: `docs/claude/03_code-instances/04_testing_kickoff.md`
+
+## Claude.md Configuration
+This instance should maintain its own `CLAUDE.md` file located at `docs/claude/03_code-instances/instance_04_testing/CLAUDE.md`. This file should contain:
+- Test pattern utilities for all component types
+- Mock data generation approaches
+- Memory and performance profiling techniques
+- GPU utilization monitoring commands
+- Pytest configuration and plugin options
+- Custom assertion helpers for tensor validation
+- Reproducibility techniques for test stability
+
+Update this file throughout development to document testing-specific implementation patterns and commands that should be readily available to Claude Code when working on test suite development and performance benchmarking.
+
+
+## Required Documentation Structure
+
+Before beginning implementation, establish these three key organizational documents:
+
+### 1. Implementation Journal
+- **Location**: `docs/claude/03_code-instances/instance_[XX]_[name]/implementation_journal.md`
+- **Purpose**: Chronological record of all implementation sessions, decisions, and issues
+- **Format**: Follow template at `docs/claude/03_code-instances/shared/04_implementation_jorunal_template.md`
+- **Usage**: 
+  - Update after each implementation session
+  - Document deviations from specifications
+  - Record challenges and their resolutions
+  - Note any questions for other instances
+  - Track next steps for upcoming sessions
+
+### 2. Completed Components List
+- **Location**: `docs/claude/03_code-instances/instance_[XX]_[name]/completed_components.md`
+- **Purpose**: Track progress of individual components with current status
+- **Format**:
+  ```markdown
+  # Completed Components Tracker
+  
+  | Component | Status | Test Coverage | Interface Doc | Last Updated |
+  |-----------|--------|---------------|--------------|--------------|
+  | [component_name] | [Not Started/In Progress/Completed] | [0-100%] | [Yes/No] | YYYY-MM-DD |
+
+
 ## Core Responsibilities
 
 - Develop and maintain the complete test suite within the `tests/` directory:
@@ -103,21 +146,21 @@ Follow this sequence for test development, aligning with component availability 
 - `docs/4_Product_Requirements_V1.md`: Requirements that tests must verify, especially sections LF-01 to LF-04 and MA-01 to MA-11
 
 ### Testing Workflows and Guides
-- `docs/claude/workflows/70_pipeline_testing.md`: Comprehensive testing procedures
-- `docs/claude/workflows/80_debugging.md`: Debug utilities and troubleshooting
+- `docs/claude/05_workflows/70-pipeline-testing.md`: Comprehensive testing procedures
+- `docs/claude/05_workflows/80_debugging.md`: Debug utilities and troubleshooting
 - `docs/6_Tactical_Plan_V1.md`: Section V for integration testing guidance
 
 ### Component-Specific Testing Guides
-- `docs/claude/components/10_data_loading/testing.md`: Data pipeline testing approach
-- `docs/claude/components/20_embeddings/testing.md`: Embedding layer test specifications
-- `docs/claude/components/30_transformer_block/testing.md`: Transformer block test procedures
-- `docs/claude/components/40_ipa_module/testing.md`: IPA module testing guidance
-- `docs/claude/components/50_losses/testing.md`: Loss function testing practices
+- `docs/claude/02_components/10_data_loading/13_data_loading_testing.md`: Data pipeline testing approach
+- `docs/claude/02_components/20_embeddings/23_embeddings_testing.md`: Embedding layer test specifications
+- `docs/claude/02_components/30_transformer_block/33_transformer_testing.md`: Transformer block test procedures
+- `docs/claude/02_components/40_ipa_module/43_ipa-testing-guide.md`: IPA module testing guidance
+- `docs/claude/02_components/50_losses/53_losses_tests.md`: Loss function testing practices
 
 ### Protocol and Principle References
 - `docs/claude/01_implementation_principles.md`: Core principles driving test standards
 - `docs/claude/7_AI_Agent_Rules.md`: Sections 3 (Test-Driven Development) and 4 (Verification)
-- `docs/claude/code-instances/06_component_handoff_protocol.md`: Verification steps for handoffs
+- `docs/claude/03_code-instances/shared/06_component_handoff_protocol.md`: Verification steps for handoffs
 
 ### Interface Contracts (review as provided)
 - Interface contracts from 01_data_pipeline
@@ -159,6 +202,7 @@ Follow this sequence for test development, aligning with component availability 
 - Coordinate with all instances before major integration test efforts
 - Share test fixtures and mock objects that may be useful across instances
 - Provide clear integration test reports documenting system-level behavior
+- Update implementation journal at `docs/claude/03_code-instances/instance_04_testing/implementation_journal.md` with test status and findings
 
 ## Code Standards
 
