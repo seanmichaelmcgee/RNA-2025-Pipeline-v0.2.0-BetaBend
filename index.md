@@ -1,7 +1,7 @@
 # RNA-2025-Pipeline Index
 
-Date: 2025-04-19
-Version: v0.2.0
+Date: 2025-04-20
+Version: v0.2.0-BetaBend
 
 ## Project Structure
 
@@ -65,95 +65,151 @@ Version: v0.2.0
 │   │   │   ├── 60_visualizations/
 │   │   │   │   └── 61_visualizations_guide.md
 │   │   │   └── component-guide-template.md
-│   │   ├── 03_code-instances/ # Code instance documentation
-│   │   │   ├── 01_data_pipeline_kickoff.md
-│   │   │   ├── 02_model_kickoff.md
-│   │   │   ├── 03_integration_kickoff.md
-│   │   │   ├── 04_testing_kickoff.md
-│   │   │   ├── README.md
-│   │   │   ├── coordination/  # Empty coordination directory
-│   │   │   ├── instance_01_data/  # Empty instance directory
-│   │   │   ├── instance_02_model/ # Empty instance directory
-│   │   │   ├── instance_03_integration/ # Empty instance directory
-│   │   │   ├── instsance_04_testing/ # Empty instance directory (typo in name)
-│   │   │   └── shared/        # Shared documentation for code instances
+│   │   ├── 03_code-instances/ # Multi-instance architecture documentation
+│   │   │   ├── 01_data_pipeline_kickoff.md  # Data instance kickoff
+│   │   │   ├── 02_model_kickoff.md          # Model instance kickoff
+│   │   │   ├── 03_integration_kickoff.md    # Integration instance kickoff
+│   │   │   ├── 04_testing_kickoff.md        # Testing instance kickoff
+│   │   │   ├── README.md                    # Overview of multi-instance approach
+│   │   │   ├── coordination/                # Coordination mechanisms
+│   │   │   ├── instance_01_data/            # Data instance workspace
+│   │   │   ├── instance_02_model/           # Model instance workspace
+│   │   │   ├── instance_03_integration/     # Integration instance workspace
+│   │   │   ├── instance_04_testing/         # Testing instance workspace (fixed typo)
+│   │   │   └── shared/                      # Shared documentation for code instances
 │   │   │       ├── 01_Code_instances_plan.md
 │   │   │       ├── 02_Code_instances_implementation_and_GUIDE.md
 │   │   │       ├── 03_Advanced_implementation_strategy.md
-│   │   │       ├── 04_0implementation_jorunal_template.md
+│   │   │       ├── 04_implementation_journal_template.md
 │   │   │       ├── 05_interface_contract_template.md
-│   │   │       ├── 06_component_handoff_protocol
-│   │   │       ├── 06_component_handoff_protocol.D
 │   │   │       ├── 06_component_handoff_protocol.md
 │   │   │       └── 07_component_status_tracker.md
-│   │   ├── 04_reference/     # Reference materials
+│   │   ├── 04_reference/      # Reference materials
 │   │   │   ├── configuration.md
 │   │   │   ├── feature_formats.md
 │   │   │   └── pytorch_patterns.md
-│   │   └── 05_workflows/     # Workflow documentation
-│   │       ├── 100_advanced_training_techniques.md
+│   │   └── 05_workflows/      # Workflow documentation
 │   │       ├── 60_model_integration.md
-│   │       ├── 70-pipeline-testing.md
+│   │       ├── 70_pipeline_testing.md
 │   │       ├── 80_debugging.md
-│   │       └── 90_kaggle_submission.md
-│   └── data_examples/        # Example data files
+│   │       ├── 90_kaggle_submission.md
+│   │       └── 100_advanced_training_techniques.md
+│   └── data_examples/         # Example data files
 │       ├── 1A51_A_dihedral_features.npz.txt
 │       ├── 1A51_A_features.npz.txt
 │       ├── 1A51_A_thermo_features.npz.txt
 │       └── train_features_example.md
-├── environment.yml           # Conda environment configuration
-├── index.md                  # This file - codebase index
-├── scripts/                  # Utility scripts
-│   └── test_data_loading.py  # Script to test data loading
-├── setup_project.sh          # Project setup script
-├── src/                      # Source code
-│   ├── data_loading.py       # Data loading functionality
-│   ├── ipa-module-tests.py   # IPA module test scripts
-│   ├── losses.py             # Loss functions
-│   └── models/               # Model components
-│       ├── embeddings.py     # Feature embedding module
-│       ├── ipa_module.py     # Invariant Point Attention module
+├── environment.yml            # Conda/mamba environment configuration
+├── index.md                   # This file - codebase index
+├── scripts/                   # Utility scripts
+│   └── test_data_loading.py   # Script to test data loading
+├── setup_project.sh           # Project setup script
+├── src/                       # Source code
+│   ├── data_loading.py        # Data loading functionality
+│   ├── ipa-module-tests.py    # IPA module test scripts
+│   ├── losses.py              # Loss functions
+│   └── models/                # Model components
+│       ├── embeddings.py      # Feature embedding module
+│       ├── ipa_module.py      # Invariant Point Attention module
 │       ├── rna_folding_model.py # Main RNA folding model
 │       └── transformer_block.py # Transformer architecture
-└── tests/                    # Test suite
-    ├── test_data_loading.py  # Tests for data loading
-    └── test_losses.py        # Tests for loss functions
+└── tests/                     # Test suite
+    ├── test_data_loading.py   # Tests for data loading
+    └── test_losses.py         # Tests for loss functions
 ```
 
 ## Key Components
 
-### Data Processing
+### 1. Data Processing
 - **Data Loading** (`src/data_loading.py`): Handles loading and processing RNA sequence and feature data.
+  - PyTorch Dataset implementation for RNA sequences
+  - Feature preprocessing and normalization
+  - Batch collation with padding for variable-length sequences
+  - Mask generation for attention mechanisms
 - **Raw Data** (`data/raw/`): Contains MSA files, training sequences, labels, and validation data.
 
-### Model Architecture
+### 2. Model Architecture
 - **RNA Folding Model** (`src/models/rna_folding_model.py`): Main model implementation for RNA folding prediction.
-- **Embeddings** (`src/models/embeddings.py`): Handles feature embedding functionality to convert raw features into model-compatible representations.
-- **IPA Module** (`src/models/ipa_module.py`): Implements the Invariant Point Attention mechanism for geometric reasoning.
-- **Transformer Block** (`src/models/transformer_block.py`): Contains transformer architecture components for sequence modeling.
+  - End-to-end model integrating all components
+  - Configuration-driven architecture
+  - Multiple prediction heads for coordinates and confidence
 
-### Training Components
-- **Loss Functions** (`src/losses.py`): Implements various loss functions for training the RNA folding model.
+- **Embeddings** (`src/models/embeddings.py`): Handles feature embedding functionality.
+  - Sequence token embeddings
+  - Positional encoding (both absolute and relative)
+  - Feature projection layers
 
-### Testing 
-- **Test Suite** (`tests/`): Contains unit tests for different components of the pipeline.
-  - `test_data_loading.py`: Validates data loading functionality.
-  - `test_losses.py`: Verifies correctness of loss function implementations.
+- **Transformer Block** (`src/models/transformer_block.py`): Implements transformer architecture.
+  - Multi-head self-attention mechanism
+  - Pair representation updates
+  - Pre-normalization and residual connections
 
-### Documentation
-- **Project Documentation** (`docs/`): Comprehensive documentation covering:
+- **IPA Module** (`src/models/ipa_module.py`): Implements geometric reasoning for 3D coordinates.
+  - Invariant Point Attention mechanism
+  - Frame-based representation
+  - Coordinate prediction
+
+### 3. Training Components
+- **Loss Functions** (`src/losses.py`): Implements various loss functions.
+  - FAPE loss for coordinate prediction
+  - Confidence loss for structure quality estimation
+  - Auxiliary angle prediction loss
+  - Multi-component weighting mechanism
+
+### 4. Testing Infrastructure
+- **Test Suite** (`tests/`): Comprehensive testing for all components.
+  - `test_data_loading.py`: Validates data loading functionality
+  - `test_losses.py`: Verifies correctness of loss function implementations
+  - More test files to be added for each component
+  - Coverage reporting and integration tests
+
+### 5. Documentation
+- **Project Documentation** (`docs/`): Comprehensive documentation including:
   - Project context and requirements
   - Architecture specifications
   - Implementation guides for each component
-  - Workflows and testing procedures
+  - Workflow instructions and testing procedures
   - Kaggle competition references
+  - Multi-instance coordination protocols
 
-## Build and Test Commands
+## Development Environment
 
-- **Environment Setup**: `conda env create -f environment.yml`
-- **Running Tests**: `python -m pytest tests/`
-- **Running Specific Tests**: `python -m pytest tests/test_data_loading.py::TestRNADataset::test_initialization`
-- **Test with Verbosity**: `python -m pytest tests/ -v`
-- **Test with Coverage**: `python -m pytest tests/ --cov=src`
-- **Linting**: `black src/ tests/` and `isort src/ tests/`
-- **Type Checking**: `mypy src/`
+### Build and Test Commands
+
+- **Environment Setup**: 
+  ```bash
+  mamba env create -f environment.yml  # Faster than conda
+  mamba activate rna-3d-folding
+  ```
+
+- **Running Tests**:
+  ```bash
+  python -m pytest tests/                                                     # All tests
+  python -m pytest tests/test_data_loading.py::TestRNADataset::test_initialization  # Specific test
+  python -m pytest tests/ -v                                                  # Verbose output
+  python -m pytest tests/ --cov=src                                           # With coverage
+  ```
+
+- **Code Quality**:
+  ```bash
+  black src/ tests/     # Format code
+  isort src/ tests/     # Sort imports
+  mypy src/             # Type checking
+  ```
+
+- **Visualization & Experiment Tracking**:
+  ```bash
+  tensorboard --logdir=logs/  # View training logs
+  # or use wandb for more robust experiment tracking
+  ```
+
+## Multi-Instance Development Architecture
+
+This project uses a specialized multi-instance Claude Code architecture with four dedicated instances:
+
+1. **Data Pipeline Instance (01)**: Specializes in data loading, feature processing, batch handling
+2. **Model Components Instance (02)**: Focuses on transformer blocks, IPA module, embeddings
+3. **Integration Instance (03)**: Manages end-to-end model, loss functions, configuration
+4. **Testing Instance (04)**: Dedicated to comprehensive testing across components
+
+Each instance maintains deep context knowledge of specific components while sharing interfaces through structured handoff protocols and documentation.
