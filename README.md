@@ -7,11 +7,12 @@ A PyTorch-based machine learning pipeline for predicting RNA 3D structures from 
 This project implements a neural network architecture that integrates RNA thermodynamic features, evolutionary coupling information, and specialized transformer-based components to predict RNA tertiary structures. The pipeline uses a modular design for high reproducibility, maintainability, and performance.
 
 Key features:
-- Reproducible containerized environment
-- Modular, well-tested components
+- Reproducible containerized environment with comprehensive dependencies
+- Modular, well-tested components with full test coverage
 - Strong separation between core logic and orchestration
-- Flexible configuration system
+- Flexible configuration system for experiment tracking
 - Multiple candidate structure prediction with confidence scores
+- Specialized multi-instance development architecture
 
 ## Data Format
 
@@ -273,10 +274,35 @@ with torch.no_grad():
 
 ## Development Environment
 
-- Install dependencies: `conda env create -f environment.yml`
-- Run tests: `python -m pytest tests/`
-- Lint code: `black src/ tests/` and `isort src/ tests/`
-- Type checking: `mypy src/`
+### Setup and Testing
+```bash
+# Create and activate environment (use mamba for faster installation)
+mamba env create -f environment.yml  # or use conda: conda env create -f environment.yml
+mamba activate rna-3d-folding        # or use conda: conda activate rna-3d-folding
+
+# Run all tests
+python -m pytest tests/
+
+# Run specific test
+python -m pytest tests/test_data_loading.py::TestRNADataset::test_initialization
+
+# Run tests with coverage
+python -m pytest tests/ --cov=src
+```
+
+### Code Quality
+```bash
+# Format code
+black src/ tests/
+isort src/ tests/
+
+# Type checking
+mypy src/
+```
+
+### Visualization and Experiment Tracking
+The environment includes PyTorch with CUDA support, plotting libraries (Matplotlib, Seaborn, Plotly), 
+molecular visualization (py3Dmol), and experiment tracking tools (TensorBoard, Weights & Biases).
 
 ## Contributors
 

@@ -1,7 +1,6 @@
 # environment.yml for RNA Folding Project - V1 PyTorch Pipeline
 # Defines the core environment for training and inference.
-# Feature extraction tools (ViennaRNA, MSA tools) are excluded
-# as features are assumed to be precomputed.
+# Feature extraction tools are excluded as features are assumed to be precomputed.
 
 name: rna-3d-folding # Environment name used in Dockerfile
 
@@ -20,37 +19,38 @@ dependencies:
   - scipy # Often used by underlying libraries or for metrics
   - pyyaml # For loading config/default_config.yaml
 
-  # --- PyTorch ---
-  # Note: Specify minimum PyTorch version compatible with CUDA 12.1
-  # Actual version installed might be newer depending on channel priorities.
-  # Pin final versions before critical runs/sharing for reproducibility.
+  # --- PyTorch & Tensor Operations ---
   - pytorch>=2.1
   - pytorch-cuda=12.1 # MUST match the CUDA version in the Docker base image
+  - einops # For clean, readable tensor manipulations in transformer architectures
 
-  # --- Logging & Utilities ---
+  # --- Machine Learning & Data Science ---
+  - scikit-learn # For PCA, dimensionality reduction, and analysis
+
+  # --- Logging & Experiment Tracking ---
   - tensorboard # For logging training progress
   - tqdm # Progress bars
+  - wandb # More robust alternative to tensorboard for experiment tracking
 
-  # --- Development & Debugging Tools (Optional but recommended for Dev container) ---
-  # Keep these if you plan to run notebooks or plot inside the container
+  # --- Testing & Development Tools ---
+  - pytest # Required for running tests (used in existing test files)
+  - black # Code formatting (referenced in CLAUDE.md)
+  - isort # Import sorting (referenced in CLAUDE.md)
+  - mypy # Type checking (referenced in CLAUDE.md)
+
+  # --- Visualization & Analysis ---
   - jupyter
   - matplotlib
   - seaborn
+  - plotly # Interactive visualizations, especially for 3D structures
   - ipywidgets # For interactive notebooks
-  # - biopython # Can be useful for sequence utils, consider adding if needed
 
   # --- File I/O ---
   - h5py # If using HDF5 format later, keep for flexibility
 
-# --- Dependencies Removed from Previous Version (Not needed for V1 Training/Inference Core) ---
-# - scikit-learn (not core V1 need)
-# - torchvision (not core V1 need)
-# - bioconda::viennarna (feature extraction only)
-# - bioconda::mafft (feature extraction only)
-# - bioconda::clustalo (feature extraction only)
-# - bioconda::infernal (feature extraction only)
-# - pymol-open-source (visualization only)
-# - Pip dependencies: py3Dmol, evcouplings, biotite (viz, feature extraction)
+  # --- Pip Dependencies ---
+  - pip:
+    - py3Dmol # Interactive molecular visualization for notebooks
 
 # --- Final Pinning Recommendation ---
 # Before finalizing model training or sharing, it's critical to pin
