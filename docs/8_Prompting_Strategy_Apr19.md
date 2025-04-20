@@ -1,8 +1,4 @@
-# Comprehensive Prompting Strategy for RNA 3D Folding Multi-Instance Development
-
-You're right - a well-structured prompting strategy for each Claude Code instance would significantly improve our development workflow. Based on the project documentation and multi-instance architecture, here's a detailed prompting approach for each instance:
-
-## General Prompting Framework (All Instances)
+# General Prompting Framework (All Instances)
 
 ### 1. Instance Activation Prompt
 ```
@@ -234,6 +230,3 @@ For each implementation session, I recommend this consistent structure:
    - Update completed components list
    - Create or update interface contracts as needed
 
-This structured approach should maximize productivity while ensuring consistent documentation and quality across all instances.
-
-Would you like me to further elaborate on any particular aspect of this prompting strategy?

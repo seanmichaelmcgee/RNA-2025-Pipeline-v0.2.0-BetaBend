@@ -24,6 +24,8 @@ This document establishes the foundational patterns and principles to maintain a
 [Module name]: [Brief description]
 
 This module implements [core functionality] for the RNA 3D structure prediction pipeline.
+
+Responsible Instance: [01_data_pipeline/02_model_components/03_integration]
 """
 import torch
 import numpy as np
@@ -51,6 +53,13 @@ class MainClass:
         """Method docstring."""
         pass
 ```
+
+### 1.4 Handoff-Ready Organization
+- Include version information in module docstrings
+- Mark public interfaces explicitly
+- Document handoff status in implementation journals
+- Group related components for coordinated handoffs
+- Maintain clear boundaries between instance responsibilities
 
 ## 2. Path Parameterization (CRITICAL)
 
@@ -87,6 +96,12 @@ def __init__(self, data_dir="data/processed"):  # NEVER DO THIS
     self.data_dir = data_dir
 ```
 
+### 2.4 Path Verification for Handoffs
+- Include path validation in verification tests
+- Check that components accept path parameters correctly
+- Verify components handle missing files appropriately
+- Confirm paths are properly joined using os.path.join()
+
 ## 3. PyTorch Implementation Patterns
 
 ### 3.1 Module Design
@@ -94,10 +109,16 @@ def __init__(self, data_dir="data/processed"):  # NEVER DO THIS
 - Implement `forward()` method with clear input/output documentation
 - Initialize parameters in `__init__` method
 - Use `nn.Parameter` for learnable parameters
+- Add version and responsible instance information in docstrings
 
 ```python
 class TransformerBlock(nn.Module):
-    """Transformer block implementation."""
+    """
+    Transformer block implementation.
+    
+    Version: v1.0
+    Responsible Instance: 02_model_components
+    """
     
     def __init__(self, config):
         super().__init__()
@@ -128,6 +149,7 @@ class TransformerBlock(nn.Module):
 - Accept device as parameter or detect automatically
 - Move tensors to device explicitly
 - Check device consistency in complex operations
+- Document device handling behavior in interface contracts
 
 ```python
 def forward(self, inputs, device=None):
@@ -147,6 +169,7 @@ def forward(self, inputs, device=None):
 - Document expected tensor shapes in docstrings
 - Use explicit dimension names (batch_size, seq_len, hidden_dim)
 - Add shape assertions in debug mode
+- Include shape information in interface contracts
 
 ```python
 def process_features(features):
@@ -170,6 +193,7 @@ def process_features(features):
 - Load all hyperparameters from configuration
 - Use dictionary access with explicit defaults
 - Validate critical parameters
+- Document configuration requirements in interface contracts
 
 ```python
 def __init__(self, config):
@@ -182,12 +206,46 @@ def __init__(self, config):
         raise ValueError(f"hidden_dim ({self.hidden_dim}) must be divisible by num_heads ({config.get('num_heads')})")
 ```
 
+### 3.5 Handoff-Ready Component Design
+- Include version information
+- Document responsible instance
+- Provide clear public API boundaries
+- Implement verification-friendly interfaces
+- Package related components together for handoffs
+
+```python
+class EmbeddingComponent(nn.Module):
+    """
+    Embedding component implementation.
+    
+    Version: v1.0
+    Responsible Instance: 02_model_components
+    Handoff Status: Ready
+    """
+    
+    def __init__(self, config):
+        # Implementation
+        
+    def forward(self, x):
+        # Implementation
+        
+    def get_verification_inputs(self):
+        """
+        Generate sample inputs for verification testing.
+        
+        Returns:
+            Dictionary of sample inputs matching expected interface
+        """
+        # Implementation
+```
+
 ## 4. Error Handling & Validation
 
 ### 4.1 Input Validation Pattern
 - Validate inputs early
 - Provide clear error messages
 - Include expected vs. actual values
+- Document error conditions in interface contracts
 
 ```python
 def process_batch(batch):
@@ -204,6 +262,7 @@ def process_batch(batch):
 - Be robust to missing feature files
 - Return default tensors of appropriate shape
 - Log warnings (not errors) for missing optional files
+- Document default handling in interface contracts
 
 ```python
 def load_evolutionary_features(target_id, features_dir):
@@ -225,6 +284,7 @@ def load_evolutionary_features(target_id, features_dir):
 - Check tensor shapes for compatibility
 - Raise clear errors for shape mismatches
 - Include component name in error messages
+- Verify shapes at component boundaries
 
 ```python
 def forward(self, sequence, pair_features):
@@ -237,12 +297,31 @@ def forward(self, sequence, pair_features):
         )
 ```
 
+### 4.4 Cross-Component Error Propagation
+- Use specific exception types for different error categories
+- Include context information when re-raising exceptions
+- Document error handling in interface contracts
+- Provide helpful debugging information
+
+```python
+def load_features(target_id, features_dir):
+    """Load features with improved error context."""
+    try:
+        # Load features
+        return features
+    except FileNotFoundError as e:
+        raise FileNotFoundError(f"Feature file for {target_id} not found in {features_dir}: {e}")
+    except ValueError as e:
+        raise ValueError(f"Invalid feature format for {target_id}: {e}")
+```
+
 ## 5. Testing Approach
 
 ### 5.1 Unit Test Pattern
 - Test each component independently
 - Use fixtures for common test data
 - Test both success cases and failure modes
+- Include test cases specific to handoff verification
 
 ```python
 def test_load_precomputed_features():
@@ -267,6 +346,7 @@ def test_load_precomputed_features():
 - Test boundary conditions
 - Test empty/small/large inputs
 - Test invalid inputs
+- Include common edge cases in verification tests
 
 ```python
 def test_collate_fn_empty_batch():
@@ -286,6 +366,7 @@ def test_collate_fn_variable_lengths():
 - Test component combinations
 - Verify end-to-end flow
 - Check memory consumption
+- Document integration patterns in handoff documentation
 
 ```python
 def test_end_to_end_small():
@@ -299,6 +380,35 @@ def test_end_to_end_small():
     outputs = model(batch)
     
     # Verify outputs have expected structure and shapes
+```
+
+### 5.4 Handoff Verification Testing
+- Create specific tests for verifying component interfaces
+- Test with exactly the same input shapes expected in production
+- Verify mask handling and padding behavior
+- Include memory and performance benchmarks
+- Test device handling and transfer
+
+```python
+def test_component_verification():
+    """Verification test for component handoff."""
+    # Create inputs matching exactly what the component will receive
+    inputs = create_verification_inputs()
+    
+    # Run component with these inputs
+    outputs = component(**inputs)
+    
+    # Verify outputs match expected format and behavior
+    verify_outputs(outputs)
+    
+    # Test with different batch sizes and sequence lengths
+    for batch_size in [1, 4, 16]:
+        for seq_len in [10, 100, 500]:
+            # Test and verify
+            
+    # Test device handling
+    if torch.cuda.is_available():
+        # Test on GPU and verify
 ```
 
 ## 6. Documentation Standards
@@ -349,12 +459,108 @@ def load_coordinates(
 final_prediction = predictions[0]
 ```
 
-## 7. Performance Considerations
+### 6.4 Interface Contract Documentation
+- Create formal interface contracts for all components
+- Use the template at `docs/claude/03_code-instances/shared/05_interface_contract_template.md`
+- Include all required sections:
+  - Component identification and version
+  - Input/output interfaces with tensor specifications
+  - Error conditions and handling
+  - Implementation requirements
+  - Usage examples and testing expectations
 
-### 7.1 Memory Efficiency
+```markdown
+# Component Interface Contract
+
+## Component Identification
+- **Component Name**: TransformerBlock
+- **Version**: v1.0
+- **Responsible Instance**: 02_model_components
+
+## Input Interface
+| Parameter | Type | Shape | Device | Description | Required |
+|-----------|------|-------|--------|-------------|----------|
+| `residue_repr` | `torch.Tensor` | `(batch_size, seq_len, residue_dim)` | Any | Residue representations | Yes |
+| `pair_repr` | `torch.Tensor` | `(batch_size, seq_len, seq_len, pair_dim)` | Same as residue_repr | Pair representations | Yes |
+| `mask` | `torch.Tensor` | `(batch_size, seq_len)` | Same as residue_repr | Boolean mask (True = valid) | Yes |
+
+## Output Interface
+| Return Value | Type | Shape | Device | Description |
+|--------------|------|-------|--------|-------------|
+| `residue_repr` | `torch.Tensor` | `(batch_size, seq_len, residue_dim)` | Same as input | Updated residue representations |
+| `pair_repr` | `torch.Tensor` | `(batch_size, seq_len, seq_len, pair_dim)` | Same as input | Updated pair representations |
+```
+
+### 6.5 Implementation Journal
+- Maintain an implementation journal following the template
+- Update after each implementation session
+- Document deviations, issues, and decisions
+- Track component status and handoffs
+- Include interface documentation as it develops
+
+```markdown
+# Implementation Session: 2025-04-15
+
+### Components Completed:
+- [x] TransformerBlock implementation
+  - Implemented pre-norm architecture
+  - Added proper mask handling
+  - Used simplified pair update for V1
+
+### Deviations from Plan:
+- Used standard nn.MultiheadAttention instead of custom attention
+- Simplified pair update mechanism uses outer product without triangle multiplication
+
+### Issues/Questions:
+- Unclear how mask should be formatted for nn.MultiheadAttention
+  - Current approach: Convert boolean mask (True=valid) to attention mask (0=attend, -inf=ignore)
+  - Need confirmation from Integration instance this matches expectations
+
+### Next Steps:
+- Finish unit tests for TransformerBlock
+- Prepare handoff documentation
+- Begin IPAModule placeholder implementation
+```
+
+## 7. Component Handoff Preparation
+
+### 7.1 Component Readiness Checklist
+- Implementation complete with all features working
+- Test coverage ≥90% including edge cases
+- Documentation complete and accurate
+- Interface contract formalized
+- Example usage provided
+- Verification tests included
+
+### 7.2 Interface Preparation
+- Clarify public vs. private interfaces
+- Ensure tensor shapes and types are consistent
+- Document device handling behavior
+- Include mask propagation details
+- Specify error conditions and handling
+
+### 7.3 Handoff Documentation
+- Follow template at `docs/claude/03_code-instances/shared/component_handoff_template.md`
+- Include component identification and status
+- Document public API in detail
+- List integration points with other components
+- Provide testing requirements and verification steps
+- Address common debugging scenarios
+
+### 7.4 Verification Requirements
+- Create specific verification tests
+- Document expected outputs for sample inputs
+- Include performance considerations
+- Note any limitations or constraints
+- Provide troubleshooting guidance
+
+## 8. Performance Considerations
+
+### 8.1 Memory Efficiency
 - Use `torch.no_grad()` for inference
 - Release unnecessary tensors
 - Consider gradient checkpointing for large models
+- Document memory usage patterns in handoff documentation
 
 ```python
 def predict(self, batch):
@@ -364,10 +570,11 @@ def predict(self, batch):
     return outputs
 ```
 
-### 7.2 Batch Processing
+### 8.2 Batch Processing
 - Process in batches, not individual samples
 - Use vectorized operations when possible
 - Avoid unnecessary CPU-GPU transfers
+- Document batch size scaling behavior
 
 ```python
 # CORRECT (vectorized)
@@ -379,10 +586,11 @@ for i in range(features.shape[1]):
     result += features[:, i] * weights[i]
 ```
 
-### 7.3 Device Management
+### 8.3 Device Management
 - Check for CUDA availability
 - Allow device specification
 - Ensure all tensors are on same device
+- Document device handling in interface contracts
 
 ```python
 def __init__(self, config, device=None):
@@ -395,8 +603,42 @@ def __init__(self, config, device=None):
     self.to(self.device)  # Move model to device
 ```
 
-## 8. Next Steps
+### 8.4 Cross-Component Optimization
+- Consider tensor lifecycle across component boundaries
+- Document performance characteristics in handoff documentation
+- Include scaling behavior with sequence length
+- Note memory patterns for different batch sizes
+- Provide optimization recommendations
 
-After reviewing these principles, proceed to implementing individual components following the roadmap in the master guide. Start with the data loading implementation.
+```python
+# Memory usage note in handoff documentation
+"""
+Memory Considerations:
+- Peak memory usage scales quadratically with sequence length due to pair representations
+- Recommended batch sizes:
+  - For L≤100: batch_size=16 (2GB VRAM)
+  - For L≤300: batch_size=4 (4GB VRAM)
+  - For L≤500: batch_size=1 (8GB VRAM)
+- Device transfer overhead is significant for larger batches
+"""
+```
 
-Refer to this document when you encounter questions about project-wide patterns or practices. Component-specific guides will provide more detailed implementation instructions.
+## 9. Conclusion
+
+These implementation principles provide a foundation for consistent, high-quality code across all instances of the RNA 3D folding project. By adhering to these principles, we ensure:
+
+1. Clear component boundaries with well-defined interfaces
+2. Robust error handling and validation
+3. Comprehensive testing and verification
+4. Efficient knowledge transfer through documentation
+5. Smooth component handoffs between instances
+6. Optimized performance and resource utilization
+7. Compatibility across local development and Kaggle environments
+
+As you implement components, regularly refer to the appropriate instance-specific documentation:
+- Data Pipeline: `docs/claude/03_code-instances/01_data_pipeline.md`
+- Model Components: `docs/claude/03_code-instances/02_model_components.md`
+- Integration: `docs/claude/03_code-instances/03_integration.md`
+- Testing: `docs/claude/03_code-instances/04_testing.md`
+
+Follow the handoff protocol documented in `docs/claude/03_code-instances/shared/06_component_handoff_protocol.md` when transitioning components between instances, and maintain your implementation journal to ensure knowledge continuity throughout the project.
