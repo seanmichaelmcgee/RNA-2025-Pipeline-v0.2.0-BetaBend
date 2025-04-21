@@ -1,8 +1,8 @@
 # RNA-2025-Pipeline Index
 
-Date: 2025-04-20
+Date: 2025-04-21
 Version: v0.2.0-BetaBend
-Last Updated: 2025-04-20
+Last Updated: 2025-04-21
 
 ## Project Structure
 
@@ -33,11 +33,13 @@ Last Updated: 2025-04-20
 │   ├── 5_Roadmap_V1.md
 │   ├── 6_Tactical_Plan_V1.md
 │   ├── 7_AI_Agent_Rules.md
+│   ├── 8_Prompting_Strategy_and_Best_practices.md
+│   ├── 09_prompt_aliases_cheatsheet.md
+│   ├── 10_Validation_and_iteration_stragety
 │   ├── Kaggle_References/     # Kaggle competition reference materials
 │   │   ├── Kaggle_Data.md
 │   │   ├── Kaggle_Overview.md
 │   │   └── Kaggle_Rules.md
-│   ├── claude-code-prompting-strategy-Apr9.md
 │   ├── claude/                # Claude Code implementation documentation
 │   │   ├── 00-master_guide.md
 │   │   ├── 01_implementation_principles.md
@@ -46,7 +48,8 @@ Last Updated: 2025-04-20
 │   │   │   │   ├── 11_data_loading_guide.md
 │   │   │   │   ├── 12_data_loading_examples.md
 │   │   │   │   ├── 13_data_loading_testing.md
-│   │   │   │   └── 14_data_loading_temporal_cutoff_implementation.md
+│   │   │   │   ├── 14_data_loading_temporal_cutoff_implementation.md
+│   │   │   │   └── 15_data_loading_v2_readiness_risks.md
 │   │   │   ├── 20_embeddings/
 │   │   │   │   ├── 21_embeddings_guide.md
 │   │   │   │   ├── 22_embeddings_examples.md
@@ -74,11 +77,37 @@ Last Updated: 2025-04-20
 │   │   │   ├── README.md                    # Overview of multi-instance approach
 │   │   │   ├── coordination/                # Coordination mechanisms
 │   │   │   ├── instance_01_data/            # Data instance workspace
+│   │   │   │   ├── CLAUDE.md
+│   │   │   │   ├── completed_components.md
+│   │   │   │   ├── handoff/
+│   │   │   │   │   └── nn_components_handoff.md
+│   │   │   │   ├── implementation_journal.md
+│   │   │   │   ├── implementation_plan.md
+│   │   │   │   ├── implementation_timeline.md
+│   │   │   │   ├── interface_exports.md
+│   │   │   │   └── partial_data_handling.md
 │   │   │   ├── instance_02_model/           # Model instance workspace
+│   │   │   │   ├── CLAUDE.md
+│   │   │   │   ├── completed_components.md
+│   │   │   │   ├── handoff/
+│   │   │   │   │   └── nn_components_handoff.md
+│   │   │   │   ├── implementation_journal.md
+│   │   │   │   └── interface_exports.md
 │   │   │   ├── instance_03_integration/     # Integration instance workspace
-│   │   │   ├── instance_04_testing/         # Testing instance workspace (fixed typo)
+│   │   │   │   ├── CLAUDE.md
+│   │   │   │   ├── completed_components.md
+│   │   │   │   ├── handoffs/
+│   │   │   │   │   └── provided/
+│   │   │   │   │       └── testing/
+│   │   │   │   │           ├── losses_handoff.md
+│   │   │   │   │           ├── rna_folding_model_handoff.md
+│   │   │   │   │           └── validation_framework_handoff.md
+│   │   │   │   ├── implementation_journal.md
+│   │   │   │   ├── loss_function_analysis.md
+│   │   │   │   └── loss_function_enhancement_plan.md
+│   │   │   ├── instance_04_testing/         # Testing instance workspace
 │   │   │   └── shared/                      # Shared documentation for code instances
-│   │   │       ├── 04_implementation_journal_template.md
+│   │   │       ├── 04_implementation_jorunal_template.md
 │   │   │       ├── 05_interface_contract_template.md
 │   │   │       ├── 06_component_handoff_protocol.md
 │   │   │       ├── 07_component_status_tracker.md
@@ -90,7 +119,7 @@ Last Updated: 2025-04-20
 │   │   │   └── pytorch_patterns.md
 │   │   └── 05_workflows/      # Workflow documentation
 │   │       ├── 60_model_integration.md
-│   │       ├── 70_pipeline_testing.md
+│   │       ├── 70-pipeline-testing.md
 │   │       ├── 80_debugging.md
 │   │       ├── 90_kaggle_submission.md
 │   │       └── 100_advanced_training_techniques.md
@@ -102,8 +131,7 @@ Last Updated: 2025-04-20
 ├── environment.yml            # Conda/mamba environment configuration
 ├── index.md                   # This file - codebase index
 ├── scripts/                   # Utility scripts
-│   ├── run_data_loading.py    # Script to run the data pipeline
-│   └── test_data_loading.py   # Script to test data loading
+│   └── run_data_loading.py    # Script to run the data pipeline
 ├── setup_project.sh           # Project setup script
 ├── src/                       # Source code
 │   ├── data_loading.py        # Data loading functionality
@@ -116,13 +144,23 @@ Last Updated: 2025-04-20
 │   │   └── transformer_block.py # Transformer architecture
 │   └── utils/                 # Utility functions
 │       └── padding.py         # Padding utilities for variable-length sequences
-└── tests/                     # Test suite
-    ├── test_data_loading.py   # Tests for data loading
-    ├── test_embeddings.py     # Tests for embedding components
-    ├── test_ipa_module.py     # Tests for IPA module
-    ├── test_losses.py         # Tests for loss functions
-    ├── test_padding.py        # Tests for padding utilities
-    └── test_transformer_block.py # Tests for transformer block
+├── tests/                     # Test suite
+│   ├── README.md              # Testing documentation
+│   ├── benchmark_utils.py     # Benchmark utilities
+│   ├── conftest.py            # Pytest configuration
+│   ├── run_benchmarks.py      # Benchmark runner
+│   ├── test_data_loading.py   # Tests for data loading
+│   ├── test_embeddings.py     # Tests for embedding components
+│   ├── test_integration.py    # Integration tests
+│   ├── test_ipa_module.py     # Tests for IPA module
+│   ├── test_losses.py         # Tests for loss functions
+│   ├── test_model.py          # Tests for main model
+│   ├── test_padding.py        # Tests for padding utilities
+│   └── test_transformer_block.py # Tests for transformer block
+└── validation/                # Validation framework
+    ├── csv_data_loader.py     # Data loader for CSV files
+    ├── scientific_features_vs_coordinates_implementation.md # Implementation plan
+    └── validation_data_technical_guide.md # Technical guide for validation
 ```
 
 ## Key Components
@@ -149,7 +187,7 @@ Last Updated: 2025-04-20
   - End-to-end model integrating all components
   - Configuration-driven architecture
   - Multiple prediction heads for coordinates and confidence
-  - *Status: Planned for next implementation phase*
+  - *Status: Implemented with basic functionality*
 
 - **Embeddings** (`src/models/embeddings.py`): ✅ Handles feature embedding functionality.
   - Sequence token embeddings with support for padding
@@ -178,9 +216,17 @@ Last Updated: 2025-04-20
   - Confidence loss for structure quality estimation
   - Auxiliary angle prediction loss
   - Multi-component weighting mechanism
-  - *Status: Partially implemented, testing in progress*
+  - *Status: Implemented, enhanced with specialized loss components*
 
-### 4. Testing Infrastructure
+### 4. Validation Framework
+- **Validation Framework** (`validation/`): ✅ Infrastructure for model validation.
+  - CSV-based coordinate loading for structure metrics
+  - NPZ feature loading for scientific features
+  - Scientific features vs. coordinates integration plan
+  - Technical guide documenting validation approach 
+  - *Status: In active development*
+
+### 5. Testing Infrastructure
 - **Test Suite** (`tests/`): Comprehensive testing for all components.
   - `test_data_loading.py`: Validates data loading functionality
   - `test_embeddings.py`: Tests embedding components and interfaces
@@ -188,10 +234,11 @@ Last Updated: 2025-04-20
   - `test_losses.py`: Verifies correctness of loss function implementations
   - `test_padding.py`: Tests padding utilities for variable-length sequences
   - `test_transformer_block.py`: Validates transformer block functionality
+  - `test_integration.py`: Integration tests across components
   - Coverage reporting and integration tests
   - *Status: Actively expanding with each component implementation*
 
-### 5. Documentation
+### 6. Documentation
 - **Project Documentation** (`docs/`): Comprehensive documentation including:
   - Project context and requirements
   - Architecture specifications
@@ -246,7 +293,7 @@ This project uses a specialized multi-instance Claude Code architecture with fou
    - Status: Core components implemented with tests and documentation
 
 3. **Integration Instance (03)**: Manages end-to-end model, loss functions, configuration
-   - Status: Preparing for implementation based on completed components
+   - Status: Basic implementation completed, validation framework in development
 
 4. **Testing Instance (04)**: Dedicated to comprehensive testing across components
    - Status: Supporting component development with integration tests
@@ -257,6 +304,7 @@ Each instance maintains deep context knowledge of specific components while shar
 
 - ✅ Data pipeline functionality (100%)
 - ✅ Core neural network components (100%)
-- ⬜ End-to-end model integration (0%)
+- 🔄 End-to-end model integration (60%) 
+- 🔄 Validation framework development (45%)
 - ⬜ Training and evaluation pipeline (0%)
 - ⬜ Kaggle submission preparation (0%)
