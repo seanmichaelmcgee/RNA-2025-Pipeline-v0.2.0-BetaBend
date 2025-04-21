@@ -288,6 +288,20 @@ Areas for future enhancement in V2:
 - Support torsion angle distributions for more accurate angle loss
 - Allow per-residue loss weighting
 
+## Testing Instance Responsibilities
+
+The Testing instance (04) has specific responsibilities regarding the loss functions that are critical to highlight:
+
+1. **Training Stability Validation**: While our unit tests verify basic functionality and gradient flow, the Testing instance must validate stability during extended training cycles. This is particularly important given the known issues documented below.
+
+2. **Performance Impact Assessment**: Evaluate how the known numerical issues affect model quality and convergence.
+
+3. **Prioritization of Issues**: Determine which issues should be addressed immediately based on their impact on training stability and model quality.
+
+4. **Regression Testing**: Ensure fixes to the issues don't introduce new problems or regressions.
+
+The Integration instance (03) has verified basic functionality, gradient flow, and implemented critical fixes, but extended training validation remains the explicit responsibility of the Testing instance.
+
 ## Known Issues and Limitations
 
 The current loss function implementation has several known issues that have been identified through testing. These issues are documented here to provide guidance for the Testing instance and future development.

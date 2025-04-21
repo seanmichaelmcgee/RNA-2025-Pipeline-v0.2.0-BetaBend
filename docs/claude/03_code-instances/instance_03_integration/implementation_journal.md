@@ -118,9 +118,12 @@ This journal documents the chronological record of implementation sessions, deci
 
 **Next Steps:**
 
-- Run model training with the enhanced loss functions to verify stability
 - Complete formal handoff to testing instance
-- Update implementation journal with examples of end-to-end usage
+- Update integration tests to verify end-to-end gradient flow
+- Document examples of end-to-end usage in handoff materials
+- Update boundary documentation to clarify Testing instance's responsibility for training validation
+
+Note: Full training validation is explicitly the responsibility of the Testing instance (04). Our Integration instance (03) is responsible for component assembly and verification of basic functionality, not for extended training cycles or performance optimization.
 
 ## Handoff Documentation Structure
 
