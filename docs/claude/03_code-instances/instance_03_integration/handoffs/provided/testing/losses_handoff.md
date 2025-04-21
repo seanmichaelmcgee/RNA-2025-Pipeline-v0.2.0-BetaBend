@@ -288,6 +288,127 @@ Areas for future enhancement in V2:
 - Support torsion angle distributions for more accurate angle loss
 - Allow per-residue loss weighting
 
+## Known Issues and Limitations
+
+The current loss function implementation has several known issues that have been identified through testing. These issues are documented here to provide guidance for the Testing instance and future development.
+
+### 1. Kabsch Alignment Issues (Critical)
+
+**Issue Description**:  
+The Kabsch alignment algorithm used in the FAPE loss has issues handling certain rotation cases correctly. This affects the ability to properly align predicted structures with ground truth before calculating distance errors.
+
+**Impact**:  
+This can lead to incorrect loss values and potentially unstable gradients during training, particularly for structures that require significant rotation during alignment.
+
+**Root Cause**:  
+The implementation may have issues with:
+- Handling of the determinant check when detecting reflections
+- SVD decomposition edge cases
+- Numerical precision in the rotation matrix calculation
+
+**Suggested Fix**:  
+Review the implementation of `stable_kabsch_align` with focus on:
+```python
+# Check for reflection (around line 67-74)
+det = torch.det(torch.matmul(V, U.transpose(-2, -1)))
+R = torch.matmul(V, U.transpose(-2, -1))
+if det < (0.0 - epsilon): # Allow for slight numerical imprecision around -1
+    # Reflection detected, correct it by flipping the sign along the axis
+    # corresponding to the smallest singular value (last column of V).
+    V_corrected = V.clone()
+    V_corrected[:, -1] = -V_corrected[:, -1]
+    R = torch.matmul(V_corrected, U.transpose(-2, -1))
+```
+
+### 2. FAPE Zero Loss Issue (Critical)
+
+**Issue Description**:  
+When predicted coordinates are identical to true coordinates, the FAPE loss should be exactly zero. However, tests show this is not always the case.
+
+**Impact**:  
+This can lead to non-zero gradients even when predictions are perfect, potentially causing model instability during later training stages.
+
+**Root Cause**:  
+Numerical precision issues in the distance calculation or Kabsch alignment may be introducing small non-zero values.
+
+**Suggested Fix**:  
+Add an explicit check for identical inputs before calculation:
+```python
+if torch.allclose(pred_coords, true_coords, atol=1e-7):
+    return torch.tensor(0.0, device=pred_coords.device, dtype=pred_coords.dtype)
+```
+
+### 3. Distance Calculation Precision (Moderate)
+
+**Issue Description**:  
+The `robust_distance_calculation` function doesn't always produce the expected values for known distances, particularly in edge cases.
+
+**Impact**:  
+This affects the accuracy of distance-based loss calculations but may not completely prevent model training.
+
+**Root Cause**:  
+The epsilon handling and clamping in the distance calculation may be introducing bias.
+
+**Suggested Fix**:  
+Review the implementation with focus on the epsilon handling:
+```python
+# Add epsilon before taking the square root to avoid sqrt(0) or sqrt(negative) due to precision
+# Clamp sum_sq_diff to be non-negative just in case
+stable_sum_sq_diff = torch.clamp(sum_sq_diff, min=0.0) + epsilon
+```
+
+### 4. Confidence Loss Value Discrepancies (Moderate)
+
+**Issue Description**:  
+The confidence loss calculation doesn't produce expected values in test cases, particularly for bad predictions with high/low confidence.
+
+**Impact**:  
+This affects the auxiliary confidence prediction task but doesn't block coordinate prediction.
+
+**Root Cause**:  
+The target derivation from coordinate errors or the scaling factor may need adjustment.
+
+**Suggested Fix**:  
+Review target calculation in the confidence loss:
+```python
+# Convert error to per-residue lDDT-like score in [0, 1]
+# Higher score means better prediction (lower error)
+conf_targets = torch.exp(-per_residue_error / scaling_factor)
+conf_targets = torch.clamp(conf_targets, 0.0, 1.0) # Ensure [0, 1]
+```
+
+### 5. Mask Handling in Confidence Loss (Minor)
+
+**Issue Description**:  
+Tests indicate the mask handling in confidence loss doesn't properly exclude padding positions.
+
+**Impact**:  
+Minimal impact on overall training, but may affect efficiency and numerical stability.
+
+**Root Cause**:  
+The mask application may be happening at the wrong point in the calculation.
+
+**Suggested Fix**:  
+Ensure proper mask application before loss calculation:
+```python
+# Mask out targets for padded positions (set to 0, loss will be ignored via mask)
+conf_targets = conf_targets * mask.float()
+```
+
+## Temporary Workarounds
+
+Until these issues are fixed, the following workarounds can be used:
+
+1. **For Kabsch Alignment Issues**: 
+   - Use smaller learning rates to reduce the impact of alignment errors
+   - Consider gradient clipping to prevent instability
+
+2. **For FAPE Zero Loss Issues**:
+   - Add a small epsilon to loss values to prevent division by zero in optimizers
+
+3. **For Confidence Prediction**:
+   - Consider using a smaller weight for the confidence loss component during initial training
+
 ## Common Debugging
 
 ### Numerical Stability Issues
