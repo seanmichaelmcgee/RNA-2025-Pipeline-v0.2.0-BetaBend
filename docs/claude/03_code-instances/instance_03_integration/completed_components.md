@@ -7,10 +7,10 @@ This document tracks the status of all components required for the Integration i
 | Component | Status | Test Coverage | Interface Doc | Handoff Status | Last Updated |
 |-----------|--------|---------------|--------------|----------------|--------------|
 | RNAFoldingModel | Completed | 100% | Yes | Ready for Handoff | 2025-04-20 |
-| compute_stable_fape_loss | Completed | 100% | No | Verified | 2025-04-20 |
-| compute_confidence_loss | Completed | 100% | No | Verified | 2025-04-20 |
-| compute_angle_loss | Completed | 100% | No | Verified | 2025-04-20 |
-| compute_combined_loss | Completed | 100% | No | Verified | 2025-04-20 |
+| compute_stable_fape_loss | Enhanced | 100% | Yes | Ready for Handoff | 2025-04-20 |
+| compute_confidence_loss | Completed | 100% (with known issues) | Yes | Ready for Handoff | 2025-04-20 |
+| compute_angle_loss | Completed | 100% | Yes | Ready for Handoff | 2025-04-20 |
+| compute_combined_loss | Completed | 100% | Yes | Ready for Handoff | 2025-04-20 |
 | Embedding Module | Completed | N/A | No | Pending Verification | 2025-04-20 |
 | Transformer Block | Completed | N/A | No | Pending Verification | 2025-04-20 |
 | IPA Module | Completed | N/A | No | Pending Verification | 2025-04-20 |
