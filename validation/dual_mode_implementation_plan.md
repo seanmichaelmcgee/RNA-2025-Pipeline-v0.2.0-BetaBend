@@ -4,6 +4,8 @@
 
 This document outlines a concrete plan for implementing the Dual-Mode Validation Framework in our RNA 3D folding model. This approach addresses the critical challenge of feature availability mismatch between training and testing environments.
 
+> **UPDATE**: This plan has been enhanced based on detailed NPZ file structure analysis. See `npz_feature_analysis.md` for comprehensive details on NPZ file organization and implementation implications.
+
 ## Core Implementation Components
 
 ### 1. Feature Loaders (2 days)
