@@ -82,6 +82,28 @@ This journal documents the chronological record of implementation sessions, deci
 - Create additional integration tests for the full pipeline
 - Update implementation journal with examples of end-to-end usage
 
+## Handoff Documentation Structure
+
+The Integration instance uses a specialized folder structure for handoff documentation due to its central role in coordinating between multiple instances. This follows the formal protocol described in `docs/claude/03_code-instances/shared/06_component_handoff_protocol.md`.
+
+### Directory Structure
+
+```
+/docs/claude/03_code-instances/instance_03_integration/handoffs/
+├── received/                 # Components we receive from other instances
+│   ├── data_pipeline/        # From Instance 01 (Data Pipeline)
+│   └── model_components/     # From Instance 02 (Model Components)
+└── provided/                 # Components we provide to other instances
+    └── testing/              # To Instance 04 (Testing)
+```
+
+This structure:
+- Clearly separates incoming vs. outgoing handoffs
+- Tracks the source/destination instance for each component
+- Maintains a component-specific document for each handoff
+
+All instances should look for component handoffs in these locations when interacting with the Integration instance. Components received from other instances will be documented in the corresponding folders under `received/`, and components provided to the Testing instance are documented under `provided/testing/`.
+
 ## Handoff Records
 
 ### Received Components
@@ -90,7 +112,17 @@ This journal documents the chronological record of implementation sessions, deci
 
 ### Provided Components
 
-*No components provided yet. Will document once ready for handoff.*
+The following components have been prepared for handoff to the Testing instance (04):
+
+1. **RNAFoldingModel** - `handoffs/provided/testing/rna_folding_model_handoff.md`
+   - Complete implementation of the main model architecture
+   - Includes interface documentation and usage examples
+   - Provides detailed testing instructions
+   
+2. **Loss Functions** - `handoffs/provided/testing/losses_handoff.md`
+   - Documentation for all loss function implementations
+   - Includes explanations of numerical stability approaches
+   - Provides usage examples for training scenarios
 
 ## Questions for Other Instances
 
