@@ -8,7 +8,18 @@ This directory contains the scripts and notebooks for Tier 1 (Technical) validat
 
 - `validation_technical.ipynb`: Jupyter notebook for interactive technical validation
 - `run_validation.py`: Script to execute the validation notebook from the command line
+- `run_dual_mode_validation.py`: Script for comparing test-equivalent and training-equivalent modes
 - `results/`: Directory where validation results are stored
+
+### Data Components
+
+- **Target Selection**: 
+  - Targets are loaded from CSV files with priority: validation_sequences.csv → train_sequences.csv → test_sequences.csv
+  - Use `--rna-ids` parameter to filter validation to specific RNA sequences
+
+- **Feature Loading**:
+  - Test-equivalent mode: Only thermodynamic and MI features
+  - Training-equivalent mode: Thermodynamic, MI, and dihedral features
 
 ## Validation Approach
 

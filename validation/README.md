@@ -2,6 +2,33 @@
 
 This directory contains the tiered validation framework for the RNA 3D structure prediction model. The validation strategy uses a three-tier approach to assess model quality at different levels of detail and computational cost.
 
+## Data Sources and Structure
+
+- **Sequences**: Target IDs are loaded from CSV files with following priority:
+  1. `data/raw/validation_sequences.csv` (for validation)
+  2. `data/raw/train_sequences.csv` (fallback)
+  3. `data/raw/test_sequences.csv` (second fallback)
+  
+- **Features**: Three types of feature files in `data/processed/`:
+  - `{target_id}_thermo_features.npz`: Thermodynamic features (available in both modes)
+  - `{target_id}_mi_features.npz`: Mutual information features (available in both modes)
+  - `{target_id}_dihedral_features.npz`: Dihedral angles (only available in train mode)
+
+### Coordinate Data Format
+- **Source**: `data/raw/validation_labels.csv`
+- **ID Format**: `{target_id}_{residue_position}` (e.g., "R1107_1", "R1107_2")
+- **Multiple Coordinate Sets**: Each residue has up to 40 sets of (x,y,z) coordinates
+  - Columns: x_1,y_1,z_1, x_2,y_2,z_2, ..., x_40,y_40,z_40
+  - Missing coordinate values use -1e+18 as placeholder
+  - The validation framework automatically selects the most complete coordinate set
+
+### Dual-Mode Validation
+The framework now includes a dual-mode validation approach:
+- **Test-Equivalent Mode**: Uses only features available at test time (thermo + MI)
+- **Training-Equivalent Mode**: Uses all available features (thermo + MI + dihedral)
+
+This helps quantify the impact of missing dihedral features during inference.
+
 ## Validation Tiers
 
 ### Tier 1: Technical Validation
@@ -55,23 +82,29 @@ This directory contains the tiered validation framework for the RNA 3D structure
 
 ## Using the Validation Framework
 
-### Running Tier 1 Validation
+### Running Validation
 
-You can run Tier 1 validation using either the Jupyter notebook or the command-line script:
+You can run validation in both modes (test and train) using the dual-mode validation script:
 
-#### Using the Run Script
+#### Using the Dual-Mode Validation Script
 ```bash
-# Navigate to the tier1_technical directory
-cd validation/tier1_technical
+# Navigate to the validation directory
+cd validation
 
-# Run with default settings
-./run_validation.py
+# Run with default settings (technical tier)
+./run_dual_mode_validation.sh
 
-# Run with a specific model checkpoint
-./run_validation.py --checkpoint /path/to/checkpoint.pt
+# Validate specific RNA IDs
+./run_dual_mode_validation.sh --rna-ids R1107 R1108
+
+# Run scientific validation with a specific checkpoint
+./run_dual_mode_validation.sh --subset scientific --checkpoint /path/to/checkpoint.pt
+
+# Force CPU usage
+./run_dual_mode_validation.sh --cpu
 
 # Get help on available options
-./run_validation.py --help
+./run_dual_mode_validation.sh --help
 ```
 
 #### Using the Notebook Directly
@@ -121,6 +154,13 @@ If performance plateaus with no improvement for 3+ iterations, the transition ma
 - **Confidence Evaluation:** Correlation between predicted confidence and true accuracy
 - **Visualization:** Per-residue error plots, 3D structure comparison
 - **Resource Utilization:** Memory usage, CUDA memory tracking
+
+### Core Components
+
+- **NPZFeatureLoader:** Loads features from NPZ files with test-mode filtering
+- **CSVCoordinateLoader:** Handles residue-level coordinate loading with multiple coordinate sets
+- **ValidationDataset:** Combines features and coordinates for dual-mode validation
+- **ValidationRunner:** Executes validation in both modes and analyzes differences
 
 ## Future Enhancements
 
