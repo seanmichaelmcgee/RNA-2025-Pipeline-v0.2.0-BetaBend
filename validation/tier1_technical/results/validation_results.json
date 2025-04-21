@@ -1,0 +1,139 @@
+{
+  "validation_time": "2025-04-21 00:57:36",
+  "device": "cuda",
+  "config": {
+    "data_dir": "/home/smcgee/MLprojects/RNA 2025/Pipeline-v1-March27on/RNA-2025-Pipeline-v0.2.0-BetaBend/data/processed",
+    "subset_size": 5,
+    "model_config": {
+      "d_model": 256,
+      "d_feedforward": 1024,
+      "num_layers": 4,
+      "num_heads": 8,
+      "dropout": 0.1,
+      "ipa_dropout": 0.1,
+      "use_checkpointing": false
+    },
+    "results_dir": "/home/smcgee/MLprojects/RNA 2025/Pipeline-v1-March27on/RNA-2025-Pipeline-v0.2.0-BetaBend/validation/tier1_technical/results",
+    "checkpoint_path": null,
+    "random_seed": 42,
+    "batch_size": 2,
+    "num_workers": 2,
+    "feature_dirs": {
+      "dihedral_features": "/home/smcgee/MLprojects/RNA 2025/Pipeline-v1-March27on/RNA-2025-Pipeline-v0.2.0-BetaBend/data/processed/dihedral_features",
+      "thermo_features": "/home/smcgee/MLprojects/RNA 2025/Pipeline-v1-March27on/RNA-2025-Pipeline-v0.2.0-BetaBend/data/processed/thermo_features",
+      "mi_features": "/home/smcgee/MLprojects/RNA 2025/Pipeline-v1-March27on/RNA-2025-Pipeline-v0.2.0-BetaBend/data/processed/mi_features"
+    }
+  },
+  "structure_metrics": {
+    "rmsd": {
+      "mean": 31.241927337646484,
+      "std": 4.7895464229028875,
+      "per_sequence": [
+        {
+          "id": "R1189",
+          "length": 118,
+          "rmsd": 31.871854782104492
+        },
+        {
+          "id": "R1156",
+          "length": 135,
+          "rmsd": 31.119787216186523
+        },
+        {
+          "id": "R1107",
+          "length": 69,
+          "rmsd": 22.552268981933594
+        },
+        {
+          "id": "R1149",
+          "length": 124,
+          "rmsd": 33.70415496826172
+        },
+        {
+          "id": "R1128",
+          "length": 238,
+          "rmsd": 36.961570739746094
+        }
+      ]
+    },
+    "tm_score": {
+      "mean": 0.04299754798412323,
+      "std": 0.00730500242215672,
+      "per_sequence": [
+        {
+          "id": "R1189",
+          "length": 118,
+          "tm_score": 0.029002100229263306
+        },
+        {
+          "id": "R1156",
+          "length": 135,
+          "tm_score": 0.04477358236908913
+        },
+        {
+          "id": "R1107",
+          "length": 69,
+          "tm_score": 0.045945338904857635
+        },
+        {
+          "id": "R1149",
+          "length": 124,
+          "tm_score": 0.04479456692934036
+        },
+        {
+          "id": "R1128",
+          "length": 238,
+          "tm_score": 0.05047215148806572
+        }
+      ]
+    },
+    "per_residue_rmsd": {
+      "per_sequence": [
+        {
+          "id": "R1189",
+          "length": 118,
+          "mean_rmsd": 30.18956756591797
+        },
+        {
+          "id": "R1156",
+          "length": 135,
+          "mean_rmsd": 29.10036849975586
+        },
+        {
+          "id": "R1107",
+          "length": 69,
+          "mean_rmsd": 20.88880157470703
+        },
+        {
+          "id": "R1149",
+          "length": 124,
+          "mean_rmsd": 30.98064422607422
+        },
+        {
+          "id": "R1128",
+          "length": 238,
+          "mean_rmsd": 34.44267272949219
+        }
+      ]
+    }
+  },
+  "gradient_status": {
+    "parameters_with_gradient_count": 59,
+    "parameters_without_gradient_count": 32,
+    "critical_missing_grad": [],
+    "loss": {
+      "fape": 9.931565284729004,
+      "angle": 0.038617704063653946,
+      "total": 9.950874328613281
+    }
+  },
+  "benchmark_results": {
+    "inference_time": {
+      "mean": 0.00552217165629069,
+      "std": 0.0003179388010982366,
+      "unit": "seconds"
+    },
+    "batch_size": 2,
+    "peak_memory": "122.62 MB"
+  }
+}
