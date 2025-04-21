@@ -125,6 +125,52 @@ This journal documents the chronological record of implementation sessions, deci
 
 Note: Full training validation is explicitly the responsibility of the Testing instance (04). Our Integration instance (03) is responsible for component assembly and verification of basic functionality, not for extended training cycles or performance optimization.
 
+### Session 4: Structure Evaluation Metrics - 2025-04-20
+
+**Tasks Completed:**
+
+- Implemented RMSD and TM-score structure evaluation metrics in `src/utils/structure_metrics.py`
+- Created tests for structure evaluation metrics in `tests/test_structure_metrics.py`
+- Developed a validation script with tiered validation for model evaluation
+- Added robust error handling for different tensor shapes
+- Implemented support for batched calculations and optional masking
+- Added per-residue RMSD computation for detailed analysis
+- Fixed numerical stability and edge cases in metrics calculations
+- Ensured compatibility with different input formats
+
+**Observations:**
+
+- Optimal structural alignment is a key component for accurate RMSD calculation
+- TM-score provides a length-independent measure of structural similarity
+- Structure metrics work well with our existing model outputs
+- Metrics can handle different tensor shapes and batch dimensions
+- The implementation follows best practices for numerical stability
+- Tests verify functionality on CPU and CUDA devices
+
+**Decisions Made:**
+
+- Reused the stable Kabsch alignment algorithm from losses.py
+- Optimized memory usage by only applying alignment when needed
+- Added special case handling for identical structures
+- Ensured metrics correctly handle masked inputs
+- Made the metrics compatible with both 3D and 4D coordinate tensors
+- Implemented a tiered validation approach following the Architecture Specification
+
+**Challenges:**
+
+- Ensuring metrics work correctly with different input shape variants
+- Maintaining numerical stability in all edge cases
+- Handling rotational ambiguity in structure comparison
+- Writing tests that verify correctness without being too brittle
+
+**Next Steps:**
+
+- Test the metrics with real model predictions
+- Integrate the metrics into the training and evaluation pipeline
+- Develop visualization tools for structure comparison
+- Create benchmarks to establish baseline performance
+- Complete formal handoff to testing instance
+
 ## Handoff Documentation Structure
 
 The Integration instance uses a specialized folder structure for handoff documentation due to its central role in coordinating between multiple instances. This follows the formal protocol described in `docs/claude/03_code-instances/shared/06_component_handoff_protocol.md`.
@@ -166,6 +212,11 @@ The following components have been prepared for handoff to the Testing instance 
    - Documentation for all loss function implementations
    - Includes explanations of numerical stability approaches
    - Provides usage examples for training scenarios
+
+3. **Structure Evaluation Metrics** - `handoffs/provided/testing/structure_metrics_handoff.md`
+   - Implementation of RMSD and TM-score metrics
+   - Includes per-residue analysis capabilities
+   - Provides tiered validation approach for model evaluation
 
 ## Questions for Other Instances
 
