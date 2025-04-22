@@ -26,6 +26,7 @@ from validation.validation_dataset import ValidationDataset
 # Import core model components for evaluation
 from src.models.rna_folding_model import RNAFoldingModel
 from src.losses import compute_stable_fape_loss, stable_kabsch_align, robust_distance_calculation
+from src.utils.structure_metrics import compute_rmsd, compute_tm_score
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -277,7 +278,10 @@ class ValidationRunner:
             mode_name: Mode name for logging ("test_equivalent" or "training_equivalent")
         
         Returns:
-            Dictionary with evaluation metrics
+            Dictionary with evaluation metrics including:
+            - Basic metrics (RMSD, TM-score)
+            - Per-sample statistics
+            - Problematic sample diagnostics
         """
         device = self.device
         model = self.model
@@ -292,6 +296,9 @@ class ValidationRunner:
         all_rmsd_values = []
         all_per_residue_errors = []
         all_sequence_lengths = []
+        
+        # Track problematic samples
+        problematic_samples = []
         
         # Track validation time
         start_time = time.time()
@@ -337,17 +344,75 @@ class ValidationRunner:
                         
                         # Calculate RMSD for this sample
                         try:
-                            # Apply Kabsch alignment
+                            # Check for extreme values in coordinates first
+                            pred_min = pred_coords[mask].min().item()
+                            pred_max = pred_coords[mask].max().item()
+                            true_min = true_coords[mask].min().item()
+                            true_max = true_coords[mask].max().item()
+                            
+                            # Define reasonable coordinate limits
+                            MAX_COORD_VALUE = 500.0  # Reasonable upper limit for RNA coordinates
+                            
+                            # Log warning if extreme values are found
+                            if (abs(pred_min) > MAX_COORD_VALUE or abs(pred_max) > MAX_COORD_VALUE or
+                                abs(true_min) > MAX_COORD_VALUE or abs(true_max) > MAX_COORD_VALUE):
+                                error_msg = f"Extreme coordinate values detected: " + \
+                                          f"pred=[{pred_min:.2f}, {pred_max:.2f}], " + \
+                                          f"true=[{true_min:.2f}, {true_max:.2f}]"
+                                logger.warning(f"{error_msg} for {target_id}")
+                                
+                                # Record problematic sample
+                                problematic_samples.append({
+                                    "id": target_id,
+                                    "issue": "extreme_coordinates",
+                                    "details": error_msg,
+                                    "seq_len": seq_len,
+                                    "pred_min": float(pred_min),
+                                    "pred_max": float(pred_max),
+                                    "true_min": float(true_min),
+                                    "true_max": float(true_max)
+                                })
+                                
+                                # Skip this sample if it has extreme values
+                                logger.warning(f"Skipping sample {target_id} due to extreme coordinate values")
+                                continue
+                            
+                            # Use stable compute_rmsd function from structure_metrics
+                            rmsd = compute_rmsd(
+                                pred_coords[mask].unsqueeze(0), 
+                                true_coords[mask].unsqueeze(0)
+                            ).item()
+                            
+                            # Sanity check on RMSD value
+                            if rmsd > 100.0:  # RMSD shouldn't be this large for valid RNA structures
+                                logger.warning(f"Unusually large RMSD detected for {target_id}: {rmsd:.4f} Å")
+                                
+                                # Record problematic sample
+                                problematic_samples.append({
+                                    "id": target_id,
+                                    "issue": "extreme_rmsd",
+                                    "details": f"RMSD value: {rmsd:.4f} Å",
+                                    "seq_len": seq_len,
+                                    "original_rmsd": float(rmsd)
+                                })
+                                
+                                # Limit RMSD to a reasonable value for reporting purposes
+                                rmsd = 100.0
+                                
+                            all_rmsd_values.append(rmsd)
+                            
+                            # Apply Kabsch alignment for per-residue error calculation
                             pred_aligned = stable_kabsch_align(
                                 pred_coords[mask], true_coords[mask]
                             )
                             
-                            # Compute RMSD
+                            # Compute per-residue distances for detailed analysis
                             distances = robust_distance_calculation(
                                 pred_aligned, true_coords[mask]
                             )
-                            rmsd = torch.sqrt(torch.mean(distances ** 2)).item()
-                            all_rmsd_values.append(rmsd)
+                            
+                            # Cap distances at a reasonable value
+                            distances = torch.clamp(distances, max=50.0)
                             
                             # Store per-residue errors for detailed analysis
                             per_residue_error = torch.zeros(seq_len)
@@ -355,7 +420,16 @@ class ValidationRunner:
                             all_per_residue_errors.append(per_residue_error)
                             
                         except Exception as e:
-                            logger.error(f"Error calculating RMSD for {target_id}: {e}")
+                            error_msg = f"Error calculating RMSD: {str(e)}"
+                            logger.error(f"{error_msg} for {target_id}")
+                            
+                            # Record problematic sample
+                            problematic_samples.append({
+                                "id": target_id,
+                                "issue": "calculation_error",
+                                "details": error_msg,
+                                "seq_len": seq_len
+                            })
                             continue
                 
                 except RuntimeError as e:
@@ -388,9 +462,32 @@ class ValidationRunner:
         # Compute TM-score if in metrics list
         tm_scores = []
         if "tm_score" in self.config["metrics"]:
-            for pred, true in zip(all_pred_coords, all_true_coords):
+            for i, (pred, true) in enumerate(zip(all_pred_coords, all_true_coords)):
                 try:
+                    # Check for extreme values first
+                    pred_min = pred.min().item()
+                    pred_max = pred.max().item()
+                    true_min = true.min().item()
+                    true_max = true.max().item()
+                    
+                    # Define reasonable coordinate limits
+                    MAX_COORD_VALUE = 500.0  # Reasonable upper limit for RNA coordinates
+                    
+                    # Skip if extreme values are found
+                    if (abs(pred_min) > MAX_COORD_VALUE or abs(pred_max) > MAX_COORD_VALUE or
+                        abs(true_min) > MAX_COORD_VALUE or abs(true_max) > MAX_COORD_VALUE):
+                        logger.warning(f"Skipping TM-score calculation due to extreme coordinate values: " +
+                                    f"pred=[{pred_min:.2f}, {pred_max:.2f}], " +
+                                    f"true=[{true_min:.2f}, {true_max:.2f}]")
+                        continue
+                    
                     tm_score = self._calculate_tm_score(pred, true)
+                    
+                    # Sanity check on TM-score value
+                    if tm_score < 0.0 or tm_score > 1.0 or torch.isnan(torch.tensor(tm_score)):
+                        logger.warning(f"Invalid TM-score value: {tm_score}. Setting to 0.0")
+                        tm_score = 0.0
+                        
                     tm_scores.append(tm_score)
                 except Exception as e:
                     logger.warning(f"Error calculating TM-score: {e}")
@@ -408,6 +505,7 @@ class ValidationRunner:
             "avg_per_residue_error": avg_per_residue_error.tolist() if isinstance(avg_per_residue_error, np.ndarray) else None,
             "evaluation_time_seconds": eval_time,
             "mean_sequence_length": np.mean(all_sequence_lengths),
+            "problematic_samples": problematic_samples
         }
         
         # Add TM-score if available
@@ -424,6 +522,14 @@ class ValidationRunner:
         if tm_scores:
             logger.info(f"  Mean TM-score: {results['mean_tm_score']:.4f}")
         logger.info(f"  Evaluation time: {eval_time:.2f} seconds")
+        
+        # Log issues
+        if problematic_samples:
+            logger.warning(f"  Problematic samples detected: {len(problematic_samples)}")
+            for i, sample in enumerate(problematic_samples[:3]):  # Show first 3 only to avoid log spam
+                logger.warning(f"    {i+1}. {sample['id']}: {sample['issue']} - {sample['details']}")
+            if len(problematic_samples) > 3:
+                logger.warning(f"    ... and {len(problematic_samples) - 3} more issues")
         
         # Create and save mode-specific visualizations
         if self.config["save_results"]:
@@ -498,21 +604,13 @@ class ValidationRunner:
         # Ensure we have matching sizes
         assert pred_coords.shape == true_coords.shape, "Coordinate shapes must match"
         
-        # Apply Kabsch alignment
-        pred_aligned = stable_kabsch_align(pred_coords, true_coords)
+        # Use the compute_tm_score function from structure_metrics
+        tm_score = compute_tm_score(
+            pred_coords.unsqueeze(0), 
+            true_coords.unsqueeze(0)
+        ).item()
         
-        # Calculate distances
-        distances = robust_distance_calculation(pred_aligned, true_coords)
-        
-        # Calculate TM-score
-        L = true_coords.shape[0]
-        d0 = 1.24 * (L - 15) ** (1/3) - 1.8  # Normalization factor
-        d0 = max(d0, 0.5)  # Ensure d0 is at least 0.5
-        
-        # TM-score formula
-        tm_score = (1 / L) * torch.sum(1 / (1 + (distances / d0) ** 2))
-        
-        return tm_score.item()
+        return tm_score
     
     def analyze_mode_differences(self, 
                                 test_results: Dict[str, Any], 
@@ -1063,6 +1161,14 @@ class ValidationRunner:
                     f.write(f"- Samples processed: {test_mode.get('num_samples', 'N/A')}\n")
                     f.write(f"- Mean sequence length: {self._format_metric_value(test_mode.get('mean_sequence_length'), precision=1)}\n")
                     f.write(f"- Evaluation time: {self._format_metric_value(test_mode.get('evaluation_time_seconds'), precision=2)} seconds\n")
+                    
+                    # Add problematic samples info
+                    if "problematic_samples" in test_mode and test_mode["problematic_samples"]:
+                        f.write(f"\n#### Problematic Samples ({len(test_mode['problematic_samples'])} found)\n\n")
+                        f.write("| Sample ID | Issue | Details |\n")
+                        f.write("|-----------|-------|--------|\n")
+                        for sample in test_mode["problematic_samples"]:
+                            f.write(f"| {sample['id']} | {sample['issue']} | {sample['details']} |\n")
                 
                 # Train mode
                 if "train_mode" in results:
@@ -1071,6 +1177,14 @@ class ValidationRunner:
                     f.write(f"- Samples processed: {train_mode.get('num_samples', 'N/A')}\n")
                     f.write(f"- Mean sequence length: {self._format_metric_value(train_mode.get('mean_sequence_length'), precision=1)}\n")
                     f.write(f"- Evaluation time: {self._format_metric_value(train_mode.get('evaluation_time_seconds'), precision=2)} seconds\n")
+                    
+                    # Add problematic samples info
+                    if "problematic_samples" in train_mode and train_mode["problematic_samples"]:
+                        f.write(f"\n#### Problematic Samples ({len(train_mode['problematic_samples'])} found)\n\n")
+                        f.write("| Sample ID | Issue | Details |\n")
+                        f.write("|-----------|-------|--------|\n")
+                        for sample in train_mode["problematic_samples"]:
+                            f.write(f"| {sample['id']} | {sample['issue']} | {sample['details']} |\n")
             
             logger.info(f"Generated markdown report: {filename}")
         

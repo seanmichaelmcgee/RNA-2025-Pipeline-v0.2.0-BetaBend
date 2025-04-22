@@ -134,6 +134,29 @@ The Tier 1 validation is considered successful if:
 3. Gradient flow verification is basic and may not catch all optimization issues
 4. The visualization is limited to per-residue RMSD and does not include 3D visualization
 
+## Data Loading and Validation Implementation
+
+### Core Components
+
+- **NPZFeatureLoader:** Loads features from NPZ files with test-mode filtering
+  - Loads target IDs from CSV files with priority: validation_sequences.csv → train_sequences.csv → test_sequences.csv
+  - Filters features based on test/train mode to match competition conditions
+- **CSVCoordinateLoader:** Handles residue-level coordinate loading with multiple coordinate sets
+  - Handles up to 40 coordinate sets per residue
+  - Automatically selects the most complete coordinate set
+- **ValidationDataset:** Combines features and coordinates for dual-mode validation
+  - Supports filtering to specific RNA IDs via `--rna-ids` parameter
+- **ValidationRunner:** Executes validation in both modes and analyzes differences
+  - Generates comprehensive reports comparing test-equivalent and training-equivalent modes
+
+### Dual-Mode Validation
+
+The framework includes a dual-mode validation approach:
+- **Test-Equivalent Mode**: Uses only features available at test time (thermo + MI)
+- **Training-Equivalent Mode**: Uses all available features (thermo + MI + dihedral)
+
+This helps quantify the impact of missing dihedral features during inference.
+
 ## Future Improvements
 
 The following enhancements are planned for the validation framework:

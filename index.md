@@ -101,11 +101,31 @@ Last Updated: 2025-04-21
 │   │   │   │   │       └── testing/
 │   │   │   │   │           ├── losses_handoff.md
 │   │   │   │   │           ├── rna_folding_model_handoff.md
+│   │   │   │   │           ├── structure_metrics_handoff.md
 │   │   │   │   │           └── validation_framework_handoff.md
 │   │   │   │   ├── implementation_journal.md
 │   │   │   │   ├── loss_function_analysis.md
 │   │   │   │   └── loss_function_enhancement_plan.md
 │   │   │   ├── instance_04_testing/         # Testing instance workspace
+│   │   │   │   ├── CLAUDE.md
+│   │   │   │   ├── completed_components.md
+│   │   │   │   ├── implementation_journal.md
+│   │   │   │   ├── issue_classification_system.md
+│   │   │   │   ├── v1_implementation_plan.md
+│   │   │   │   ├── verification_reports/     # Component verification reports
+│   │   │   │   │   ├── component_verification_plan_template.md
+│   │   │   │   │   ├── data_loading_verification_plan.md
+│   │   │   │   │   ├── embeddings_verification_plan.md
+│   │   │   │   │   ├── ipa_module_verification_plan.md
+│   │   │   │   │   ├── issue_LOSS-001_kabsch_rotation.md
+│   │   │   │   │   ├── issue_LOSS-002_collinear_points.md
+│   │   │   │   │   ├── issue_LOSS-003_robust_distance.md
+│   │   │   │   │   ├── issue_report_template.md
+│   │   │   │   │   ├── loss_functions_verification_plan.md
+│   │   │   │   │   ├── rna_folding_model_verification_plan.md
+│   │   │   │   │   ├── transformer_block_verification_plan.md
+│   │   │   │   │   └── verification_report_template.md
+│   │   │   │   └── verification_status.md
 │   │   │   └── shared/                      # Shared documentation for code instances
 │   │   │       ├── 04_implementation_jorunal_template.md
 │   │   │       ├── 05_interface_contract_template.md
@@ -131,7 +151,8 @@ Last Updated: 2025-04-21
 ├── environment.yml            # Conda/mamba environment configuration
 ├── index.md                   # This file - codebase index
 ├── scripts/                   # Utility scripts
-│   └── run_data_loading.py    # Script to run the data pipeline
+│   ├── run_data_loading.py    # Script to run the data pipeline
+│   └── validate_model.py      # Script to validate model performance
 ├── setup_project.sh           # Project setup script
 ├── src/                       # Source code
 │   ├── data_loading.py        # Data loading functionality
@@ -143,7 +164,8 @@ Last Updated: 2025-04-21
 │   │   ├── rna_folding_model.py # Main RNA folding model
 │   │   └── transformer_block.py # Transformer architecture
 │   └── utils/                 # Utility functions
-│       └── padding.py         # Padding utilities for variable-length sequences
+│       ├── padding.py         # Padding utilities for variable-length sequences
+│       └── structure_metrics.py # Structure quality evaluation metrics
 ├── tests/                     # Test suite
 │   ├── README.md              # Testing documentation
 │   ├── benchmark_utils.py     # Benchmark utilities
@@ -152,15 +174,60 @@ Last Updated: 2025-04-21
 │   ├── test_data_loading.py   # Tests for data loading
 │   ├── test_embeddings.py     # Tests for embedding components
 │   ├── test_integration.py    # Integration tests
+│   ├── test_integration_fixed.py # Fixed integration tests
 │   ├── test_ipa_module.py     # Tests for IPA module
 │   ├── test_losses.py         # Tests for loss functions
 │   ├── test_model.py          # Tests for main model
 │   ├── test_padding.py        # Tests for padding utilities
+│   ├── test_structure_metrics.py # Tests for structure metrics
 │   └── test_transformer_block.py # Tests for transformer block
 └── validation/                # Validation framework
+    ├── README.md              # Validation framework overview
+    ├── csv_coordinate_loader.py # Coordinate loader for validation
     ├── csv_data_loader.py     # Data loader for CSV files
-    ├── scientific_features_vs_coordinates_implementation.md # Implementation plan
-    └── validation_data_technical_guide.md # Technical guide for validation
+    ├── dual_mode_implementation_summary.md # Dual-mode implementation summary
+    ├── dual_mode_validation_README.md # Dual-mode validation guide
+    ├── export_notebook_results.py # Export notebook results to JSON/CSV
+    ├── metrics/               # Scientific validation metrics modules
+    │   ├── feature_importance/ # Feature importance analysis
+    │   │   ├── feature_importance.py # Feature ablation and importance quantification
+    │   │   └── __init__.py    # Module initialization
+    │   ├── __init__.py        # Metrics module initialization
+    │   ├── rna_family/        # RNA family classification and analysis
+    │   │   ├── __init__.py    # Module initialization
+    │   │   └── rna_family.py  # RNA family classification and evaluation
+    │   └── secondary_structure/ # Secondary structure analysis
+    │       ├── __init__.py    # Module initialization
+    │       └── secondary_structure.py # Base pair and motif evaluation
+    ├── npz_feature_analysis.md # NPZ feature format analysis
+    ├── npz_feature_loader.py  # Feature loader for NPZ files
+    ├── run_dual_mode_validation.sh # Script to run validation in both modes
+    ├── tier1_technical/       # Fast technical validation
+    │   ├── README.md          # Technical validation documentation
+    │   ├── debug_feature_loading.py # Debug feature loading issues
+    │   ├── debug_rmsd_calculation.py # Debug RMSD calculation issues
+    │   ├── debug_validation_runner.py # Debug validation runner issues
+    │   ├── export_results.sh  # Export technical validation results
+    │   ├── results/           # Technical validation results
+    │   │   ├── per_residue_rmsd.png # Per-residue RMSD visualization
+    │   │   ├── validation_results.json # Technical validation metrics
+    │   │   └── validation_technical_results.md # Technical validation report
+    │   ├── run_dual_mode_validation.py # Run validation in both modes
+    │   ├── run_validation.py  # Run validation in single mode
+    │   ├── tiered_dataset.py  # Dataset implementation for tiered validation
+    │   └── validation_technical.ipynb # Technical validation notebook
+    ├── tier2_scientific/      # Scientific validation for RNA-specific metrics
+    │   ├── README.md          # Scientific validation documentation
+    │   ├── results/           # Scientific validation results
+    │   └── run_scientific_validation.py # Run scientific validation
+    ├── tier3_comprehensive/   # Comprehensive validation for full benchmarking
+    │   ├── README.md          # Comprehensive validation documentation
+    │   └── results/           # Comprehensive validation results
+    ├── validation_dataset.py  # Validation dataset implementation
+    ├── validation_implementation_summary.md # Validation implementation summary
+    ├── validation_runner.py   # Dual-mode validation runner
+    ├── validation_status_update.md # Validation status update
+    └── validation_status_update_v2.md # Updated validation status
 ```
 
 ## Key Components
@@ -216,15 +283,30 @@ Last Updated: 2025-04-21
   - Confidence loss for structure quality estimation
   - Auxiliary angle prediction loss
   - Multi-component weighting mechanism
+  - Numerical stability safeguards with robust distance calculation
   - *Status: Implemented, enhanced with specialized loss components*
 
 ### 4. Validation Framework
-- **Validation Framework** (`validation/`): ✅ Infrastructure for model validation.
-  - CSV-based coordinate loading for structure metrics
-  - NPZ feature loading for scientific features
-  - Scientific features vs. coordinates integration plan
-  - Technical guide documenting validation approach 
-  - *Status: In active development*
+- **Validation Framework** (`validation/`): ✅ Infrastructure for comprehensive model validation.
+  - Tiered validation system (Technical, Scientific, Comprehensive)
+  - Dual-mode validation for test vs. train feature differences
+  - Structure quality metrics (RMSD, TM-score)
+  - Automatic error detection and reporting
+  - Scientific validation metrics:
+    - RNA family analysis (`validation/metrics/rna_family/`)
+    - Secondary structure analysis (`validation/metrics/secondary_structure/`)
+    - Feature importance analysis (`validation/metrics/feature_importance/`)
+  - Technical validation tier (`validation/tier1_technical/`)
+  - Scientific validation tier (`validation/tier2_scientific/`)
+  - Comprehensive validation tier (`validation/tier3_comprehensive/`)
+  - *Status: Technical validation complete, scientific validation in progress*
+
+- **Structure Metrics** (`src/utils/structure_metrics.py`): ✅ Implements structure quality evaluation metrics.
+  - RMSD calculation with Kabsch alignment
+  - TM-score implementation
+  - Robust distance calculation
+  - Coordinate validation and sanity checks
+  - *Status: Implemented and tested*
 
 ### 5. Testing Infrastructure
 - **Test Suite** (`tests/`): Comprehensive testing for all components.
@@ -234,6 +316,7 @@ Last Updated: 2025-04-21
   - `test_losses.py`: Verifies correctness of loss function implementations
   - `test_padding.py`: Tests padding utilities for variable-length sequences
   - `test_transformer_block.py`: Validates transformer block functionality
+  - `test_structure_metrics.py`: Tests structure metrics implementations
   - `test_integration.py`: Integration tests across components
   - Coverage reporting and integration tests
   - *Status: Actively expanding with each component implementation*
@@ -249,6 +332,7 @@ Last Updated: 2025-04-21
   - **Instance-Specific Documentation**:
     - Data pipeline documentation with interface contracts
     - Neural network components documentation with handoff protocols
+    - Testing instance documentation with verification reports
     - *Status: Actively maintained and updated with implementations*
 
 ## Development Environment
@@ -276,6 +360,14 @@ Last Updated: 2025-04-21
   mypy src/             # Type checking
   ```
 
+- **Validation**:
+  ```bash
+  cd validation
+  ./run_dual_mode_validation.sh  # Run validation in both test and train modes
+  ./run_dual_mode_validation.sh --subset scientific  # Run scientific validation
+  ./run_dual_mode_validation.sh --rna-ids R1107 R1108  # Validate specific RNA IDs
+  ```
+
 - **Visualization & Experiment Tracking**:
   ```bash
   tensorboard --logdir=logs/  # View training logs
@@ -296,7 +388,7 @@ This project uses a specialized multi-instance Claude Code architecture with fou
    - Status: Basic implementation completed, validation framework in development
 
 4. **Testing Instance (04)**: Dedicated to comprehensive testing across components
-   - Status: Supporting component development with integration tests
+   - Status: Supporting component development with verification reports and integration tests
 
 Each instance maintains deep context knowledge of specific components while sharing interfaces through structured handoff protocols and documentation. The project actively uses handoff documentation to enable smooth transitions between implementation phases.
 
@@ -304,7 +396,19 @@ Each instance maintains deep context knowledge of specific components while shar
 
 - ✅ Data pipeline functionality (100%)
 - ✅ Core neural network components (100%)
-- 🔄 End-to-end model integration (60%) 
-- 🔄 Validation framework development (45%)
+- 🔄 End-to-end model integration (70%) 
+- 🔄 Validation framework development (75%)
+  - ✅ Technical validation tier (100%)
+  - 🔄 Scientific validation tier (60%)
+  - ⏳ Comprehensive validation tier (10%)
 - ⬜ Training and evaluation pipeline (0%)
 - ⬜ Kaggle submission preparation (0%)
+
+## Recent Updates (2025-04-21)
+
+- Added multi-tier validation framework with dual-mode architecture
+- Created metrics module structure for scientific validation
+- Fixed numerical stability issues in RMSD calculation
+- Added RNA family, secondary structure, and feature importance analysis
+- Enhanced reporting with problematic sample tracking
+- Improved documentation and visualization components

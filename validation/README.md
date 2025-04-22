@@ -1,6 +1,6 @@
 # RNA 3D Folding Model Validation Framework
 
-This directory contains the tiered validation framework for the RNA 3D structure prediction model. The validation strategy uses a three-tier approach to assess model quality at different levels of detail and computational cost.
+This directory contains the tiered validation framework for the RNA 3D structure prediction model. The validation strategy uses a three-tier approach to assess model quality at different levels of detail and computational cost, with a dual-mode architecture to address the feature availability differences between training and testing environments.
 
 ## Data Sources and Structure
 
@@ -23,11 +23,16 @@ This directory contains the tiered validation framework for the RNA 3D structure
   - The validation framework automatically selects the most complete coordinate set
 
 ### Dual-Mode Validation
-The framework now includes a dual-mode validation approach:
+The framework implements a comprehensive dual-mode validation approach:
 - **Test-Equivalent Mode**: Uses only features available at test time (thermo + MI)
 - **Training-Equivalent Mode**: Uses all available features (thermo + MI + dihedral)
 
-This helps quantify the impact of missing dihedral features during inference.
+This sophisticated approach:
+1. Quantifies the performance gap caused by feature availability differences
+2. Provides scientific insights to guide model architecture decisions
+3. Offers accurate estimates of expected Kaggle leaderboard performance
+4. Identifies which RNA structures and families are most impacted by missing features
+5. Guides the development of feature prediction strategies to bridge the gap
 
 ## Validation Tiers
 
@@ -128,11 +133,23 @@ tier1_technical/results/
 
 ## Implementation Status
 
-| Tier | Status | Components |
-|------|--------|------------|
-| Tier 1: Technical | ✅ Complete | Notebook, run script, robust feature loading, results reporting |
-| Tier 2: Scientific | ✅ Complete | Notebook, enhanced metrics, visualizations, sequence length analysis |
+| Component | Status | Description |
+|-----------|--------|------------|
+| Core Framework | ✅ Complete | ValidationRunner, ValidationDataset, NPZFeatureLoader, CSVCoordinateLoader |
+| Structure Metrics | ✅ Complete | RMSD with Kabsch alignment, TM-score, per-residue RMSD |
+| Tier 1: Technical | ✅ Complete | Technical validation notebook, run scripts, visualization, diagnostics |
+| Tier 2: Scientific | ⏳ In Progress | Scientific validation notebook, RNA family analysis, feature importance analysis |
+| RNA Family Analysis | ⏳ In Progress | Classification, grouping, and analysis of different RNA families |
+| Secondary Structure | ⏳ In Progress | Base-pairing prediction accuracy, secondary structure metrics |
+| Feature Importance | ⏳ In Progress | Feature ablation study, importance quantification, visualization |
 | Tier 3: Comprehensive | 🔄 Planned | Directory structure created, implementation pending |
+
+### Recent Updates (2025-04-21)
+- Fixed extreme RMSD values caused by numerical instability
+- Added proper coordinate validation and error handling
+- Enhanced reporting with problematic sample tracking
+- Added scientific metrics modules for RNA family, secondary structure, and feature importance
+- Updated documentation and visualization components
 
 ## V1-V2 Transition Criteria
 

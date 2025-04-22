@@ -93,6 +93,15 @@ def main():
         # Run validation
         runner = ValidationRunner(model, data_dir, config, device)
         
+        # Import utility functions for debugging
+        from src.utils.structure_metrics import compute_rmsd, compute_tm_score
+        from src.losses import stable_kabsch_align, robust_distance_calculation
+        
+        # Verify that structure_metrics module is being used correctly
+        print("Verifying structure metrics imports...")
+        print(f"  compute_rmsd imported from: {compute_rmsd.__module__}")
+        print(f"  compute_tm_score imported from: {compute_tm_score.__module__}")
+        
         # Run validation in both modes
         print(f"\n{'='*50}\nRUNNING DUAL-MODE VALIDATION\n{'='*50}\n")
         results = runner.run_validation(args.subset, run_both_modes=True)
