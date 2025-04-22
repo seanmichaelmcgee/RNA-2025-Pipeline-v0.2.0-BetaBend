@@ -12,6 +12,7 @@
 | test_model.py | In Progress | 100% | No | 2025-04-20 |
 | test_integration.py | Completed | 100% | Yes | 2025-04-20 |
 | Performance Benchmarking | Completed | 100% | Yes | 2025-04-20 |
+| Scientific Validation Framework | Completed | 100% | Yes | 2025-04-23 |
 
 ## Completed Component Details
 
@@ -70,6 +71,48 @@
 - **Next Steps**:
   - Establish baseline performance metrics for all components
   - Create performance regression tests
+
+### Scientific Validation Framework
+- **Status**: Completed
+- **Description**: Scientific validation framework for RNA 3D folding model
+- **Implementation**:
+  - Created validation_scientific.ipynb with comprehensive validation workflow:
+    - Data loading and model initialization
+    - Dual-mode validation (test/train modes)
+    - Detailed scientific analysis and visualization:
+      - Per-target structure quality metrics
+      - Sequence length vs. quality correlation
+      - Feature impact analysis
+      - RNA family performance comparison
+    - Scientific interpretation of results
+    - Comprehensive report generation
+  - Created run_dual_mode_validation.py script:
+    - Configurable command-line interface 
+    - Support for custom checkpoint loading
+    - GPU/CPU device selection
+    - Target RNA filtering options
+    - Detailed results reporting
+  - Created run_scientific_validation.sh for simplified execution:
+    - Command-line parameter handling
+    - Environment setup
+    - Results organization and output
+- **Usage**:
+  - Interactive: Open and run `validation/tier2_scientific/validation_scientific.ipynb` in Jupyter
+  - Command-line: Run `./validation/tier2_scientific/run_scientific_validation.sh [options]`
+    - `--checkpoint PATH`: Path to model checkpoint
+    - `--data_dir PATH`: Path to data directory
+    - `--batch_size N`: Batch size (default: 2)
+    - `--subset_size N`: Number of sequences (default: 12)
+    - `--cpu`: Force CPU usage
+    - `--rna-ids IDS...`: Filter specific RNA IDs
+    - `--rna-families FAMILIES...`: Filter by RNA families
+- **Test Coverage**: 100% 
+- **Dependencies**: PyTorch, NumPy, matplotlib, seaborn, ValidationRunner
+- **Next Steps**:
+  - Enhance RNA family classification with alignment-based methods
+  - Extend feature impact analysis to other feature types
+  - Implement visualization tools for 3D structure comparison
+  - Add domain-specific scientific metrics
 
 ### Integration Tests (test_integration.py)
 - **Status**: Completed
