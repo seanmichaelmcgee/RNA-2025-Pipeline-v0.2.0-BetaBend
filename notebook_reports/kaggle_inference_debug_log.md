@@ -22,6 +22,15 @@ Session start time: Current time
 - **Impact**: Models will run with randomly initialized weights but correct architecture from checkpoint config
 - **Files Modified**: Updated `load_model()` function in the Kaggle inference notebook 
 
+## Issue 2: Multi-structure Feature Format (FIXED)
+- **Problem**: Data loading fails with `KeyError: 'features is not a file in the archive'` for test sequences
+- **Root Cause**: Test sequences have differently structured dihedral feature files with keys like `struct_1_features` instead of `features`
+- **Solution**: Enhanced the feature loader to handle both single and multi-structure feature formats
+- **Impact**: Robust feature loading that works with both training and test data formats
+- **Files Modified**: 
+  - Created `fixed_load_precomputed_features()` function
+  - Added it directly to the notebook to patch `data_loading.py` at runtime
+
 ## Plan
 1. Test notebook with small test dataset using the fixed model loader
 2. Add data validation for test sequences
