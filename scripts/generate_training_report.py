@@ -67,11 +67,27 @@ def parse_training_logs(training_dir: str) -> pd.DataFrame:
     Returns:
         DataFrame with parsed training metrics
     """
-    # Look for log files in the training directory
+    # First try to load the CSV log if it exists
+    csv_log_path = os.path.join(training_dir, "training_log.csv")
+    if os.path.exists(csv_log_path):
+        try:
+            logger.info(f"Found training_log.csv at {csv_log_path}")
+            df = pd.read_csv(csv_log_path)
+            return df
+        except Exception as e:
+            logger.warning(f"Error reading training_log.csv: {e}")
+    
+    # Look for log files in the training directory and logs subdirectory
     log_files = glob.glob(os.path.join(training_dir, "*.log"))
+    log_files += glob.glob(os.path.join(training_dir, "logs", "*.log"))
+    
+    # Specifically look for training log
+    training_log = os.path.join(training_dir, "logs", "training.log")
+    if os.path.exists(training_log) and training_log not in log_files:
+        log_files.append(training_log)
     
     if not log_files:
-        logger.warning(f"No log files found in {training_dir}")
+        logger.warning(f"No log files found in {training_dir} or {os.path.join(training_dir, 'logs')}")
         return pd.DataFrame()
     
     # Regular expressions for extracting metrics
@@ -85,46 +101,50 @@ def parse_training_logs(training_dir: str) -> pd.DataFrame:
     
     # Process each log file
     for log_file in log_files:
-        with open(log_file, 'r') as f:
-            log_text = f.read()
-            
-            # Extract all epoch entries
-            entries = re.findall(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - INFO - Epoch \d+/\d+", log_text)
-            
-            for i, timestamp in enumerate(entries):
-                # Extract the log section for this epoch
-                if i < len(entries) - 1:
-                    next_timestamp = entries[i+1]
-                    section = log_text[log_text.find(timestamp):log_text.find(next_timestamp)]
-                else:
-                    section = log_text[log_text.find(timestamp):]
+        logger.info(f"Processing log file: {log_file}")
+        try:
+            with open(log_file, 'r') as f:
+                log_text = f.read()
                 
-                # Extract metrics from the section
-                epoch_match = re.search(epoch_pattern, section)
-                train_loss_match = re.search(train_loss_pattern, section)
-                val_loss_match = re.search(val_loss_pattern, section)
-                val_rmsd_match = re.search(val_rmsd_pattern, section)
+                # Extract all epoch entries
+                entries = re.findall(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - INFO - Epoch \d+/\d+", log_text)
                 
-                if epoch_match:
-                    epoch = int(epoch_match.group(1))
-                    max_epochs = int(epoch_match.group(2))
+                for i, timestamp in enumerate(entries):
+                    # Extract the log section for this epoch
+                    if i < len(entries) - 1:
+                        next_timestamp = entries[i+1]
+                        section = log_text[log_text.find(timestamp):log_text.find(next_timestamp)]
+                    else:
+                        section = log_text[log_text.find(timestamp):]
                     
-                    entry = {
-                        'timestamp': timestamp,
-                        'epoch': epoch,
-                        'max_epochs': max_epochs,
-                    }
+                    # Extract metrics from the section
+                    epoch_match = re.search(epoch_pattern, section)
+                    train_loss_match = re.search(train_loss_pattern, section)
+                    val_loss_match = re.search(val_loss_pattern, section)
+                    val_rmsd_match = re.search(val_rmsd_pattern, section)
                     
-                    if train_loss_match:
-                        entry['train_loss'] = float(train_loss_match.group(1))
-                    
-                    if val_loss_match:
-                        entry['val_loss'] = float(val_loss_match.group(1))
-                    
-                    if val_rmsd_match:
-                        entry['val_rmsd'] = float(val_rmsd_match.group(1))
-                    
-                    data.append(entry)
+                    if epoch_match:
+                        epoch = int(epoch_match.group(1))
+                        max_epochs = int(epoch_match.group(2))
+                        
+                        entry = {
+                            'timestamp': timestamp,
+                            'epoch': epoch,
+                            'max_epochs': max_epochs,
+                        }
+                        
+                        if train_loss_match:
+                            entry['train_loss'] = float(train_loss_match.group(1))
+                        
+                        if val_loss_match:
+                            entry['val_loss'] = float(val_loss_match.group(1))
+                        
+                        if val_rmsd_match:
+                            entry['val_rmsd'] = float(val_rmsd_match.group(1))
+                        
+                        data.append(entry)
+        except Exception as e:
+            logger.warning(f"Error processing log file {log_file}: {e}")
     
     # Convert to DataFrame and sort by epoch
     if data:
@@ -182,7 +202,7 @@ def parse_gpu_metrics(training_dir: str) -> pd.DataFrame:
 
 def load_validation_results(training_dir: str) -> Dict:
     """
-    Load validation results from JSON files.
+    Load validation results from JSON or CSV files.
     
     Args:
         training_dir: Directory containing training results
@@ -190,7 +210,58 @@ def load_validation_results(training_dir: str) -> Dict:
     Returns:
         Dictionary with validation results
     """
-    # Look for validation results JSON files
+    # First check for CSV format
+    csv_validation_path = os.path.join(training_dir, "validation_results.csv")
+    if os.path.exists(csv_validation_path):
+        try:
+            logger.info(f"Found validation_results.csv at {csv_validation_path}")
+            val_df = pd.read_csv(csv_validation_path)
+            
+            # Convert CSV data to the expected dictionary format
+            validation_results = {
+                'num_samples': len(val_df),
+            }
+            
+            # Extract RMSD values if available
+            if 'rmsd' in val_df.columns:
+                rmsd_values = val_df['rmsd'].dropna().tolist()
+                validation_results['rmsd_values'] = rmsd_values
+                validation_results['mean_rmsd'] = np.mean(rmsd_values)
+                validation_results['median_rmsd'] = np.median(rmsd_values)
+                validation_results['min_rmsd'] = min(rmsd_values)
+                validation_results['max_rmsd'] = max(rmsd_values)
+            
+            # Extract TM scores if available
+            if 'tm_score' in val_df.columns:
+                tm_scores = val_df['tm_score'].dropna().tolist()
+                validation_results['tm_scores'] = tm_scores
+                validation_results['mean_tm_score'] = np.mean(tm_scores)
+            
+            # Extract per-target results if target_id is available
+            if 'target_id' in val_df.columns:
+                per_target_results = {}
+                for _, row in val_df.iterrows():
+                    target_id = row['target_id']
+                    target_data = {}
+                    
+                    if 'length' in row:
+                        target_data['length'] = row['length']
+                    
+                    if 'rmsd' in row:
+                        target_data['rmsd'] = row['rmsd']
+                    
+                    if 'tm_score' in row:
+                        target_data['tm_score'] = row['tm_score']
+                    
+                    per_target_results[target_id] = target_data
+                
+                validation_results['per_target_results'] = per_target_results
+            
+            return validation_results
+        except Exception as e:
+            logger.warning(f"Error reading validation_results.csv: {e}")
+    
+    # Fallback to JSON format
     validation_files = glob.glob(os.path.join(training_dir, "**/validation_results.json"), recursive=True)
     
     if not validation_files:
