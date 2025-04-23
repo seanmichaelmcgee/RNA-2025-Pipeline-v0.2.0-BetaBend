@@ -1,0 +1,5 @@
+2025-04-23 01:02:48,706 - INFO - Using device: cuda
+2025-04-23 01:02:48,706 - DEBUG - Debug mode enabled. Using max 5 samples.
+2025-04-23 01:02:48,716 - DEBUG - Filtered from 844 to 767 sequences with length between 10 and 200
+2025-04-23 01:02:48,716 - DEBUG - Limiting dataset to 5 random samples
+2025-04-23 01:02:48,718 - INFO - Split dataset into 0 training and 5 validation samples

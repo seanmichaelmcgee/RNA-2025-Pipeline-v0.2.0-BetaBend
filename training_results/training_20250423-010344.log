@@ -1,0 +1,45 @@
+2025-04-23 01:03:44,751 - INFO - Using device: cuda
+2025-04-23 01:03:44,751 - DEBUG - Debug mode enabled. Using max 5 samples.
+2025-04-23 01:03:44,762 - DEBUG - Filtered from 844 to 767 sequences with length between 10 and 200
+2025-04-23 01:03:44,762 - DEBUG - Limiting dataset to 5 random samples
+2025-04-23 01:03:44,764 - INFO - Split dataset into 5 training and 0 validation samples
+2025-04-23 01:03:44,933 - INFO - Created data loaders with 5 training and 0 validation samples
+2025-04-23 01:03:44,933 - INFO - Using default model configuration
+2025-04-23 01:03:45,030 - INFO - Using model with default initialization (no checkpoint loaded)
+2025-04-23 01:03:45,030 - INFO - Model configuration: {
+  "num_blocks": 4,
+  "residue_embed_dim": 128,
+  "pair_embed_dim": 64,
+  "num_attention_heads": 4,
+  "dropout": 0.1,
+  "ffn_dim": 512,
+  "max_relative_position": 32,
+  "seq_embed_dim": 16,
+  "num_embeddings": 5,
+  "padding_idx": 4,
+  "ipa_dim": 64,
+  "max_len": 500,
+  "use_conservation": false
+}
+2025-04-23 01:03:45,406 - INFO - Training parameters:
+2025-04-23 01:03:45,406 - INFO -   Batch size: 8
+2025-04-23 01:03:45,406 - INFO -   Learning rate: 0.001
+2025-04-23 01:03:45,406 - INFO -   Weight decay: 0.0001
+2025-04-23 01:03:45,406 - INFO -   Gradient clipping: 1.0
+2025-04-23 01:03:45,406 - INFO -   Loss weights: {'fape': 1.0, 'confidence': 0.1, 'angle': 0.5}
+2025-04-23 01:03:45,406 - INFO -   Max epochs: 1
+2025-04-23 01:03:45,406 - INFO - Epoch 1/1 (lr=1.00e-03)
+2025-04-23 01:03:45,723 - INFO -   Train loss: 10.1220
+2025-04-23 01:03:45,723 - INFO -   Train FAPE loss: 9.8140
+2025-04-23 01:03:45,723 - INFO -   Train confidence loss: 0.2299
+2025-04-23 01:03:45,723 - INFO -   Train angle loss: 0.5701
+2025-04-23 01:03:45,723 - WARNING - No validation samples available. Skipping validation.
+2025-04-23 01:03:45,723 - INFO -   Val loss: nan
+2025-04-23 01:03:45,723 - INFO -   Val FAPE loss: nan
+2025-04-23 01:03:45,723 - INFO -   Val confidence loss: nan
+2025-04-23 01:03:45,723 - INFO -   Val angle loss: nan
+2025-04-23 01:03:45,723 - INFO -   Val RMSD: nan Å
+2025-04-23 01:03:45,735 - INFO - Checkpoint saved to training_results/checkpoints/checkpoint_epoch_1.pt
+2025-04-23 01:03:45,735 - INFO -   No improvement for 1 epochs (best: inf at epoch 0)
+2025-04-23 01:03:45,746 - INFO - Checkpoint saved to training_results/checkpoints/latest_model.pt
+2025-04-23 01:03:45,746 - INFO - Training finished!

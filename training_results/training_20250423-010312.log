@@ -1,0 +1,35 @@
+2025-04-23 01:03:12,073 - INFO - Using device: cuda
+2025-04-23 01:03:12,073 - DEBUG - Debug mode enabled. Using max 5 samples.
+2025-04-23 01:03:12,083 - DEBUG - Filtered from 844 to 767 sequences with length between 10 and 200
+2025-04-23 01:03:12,083 - DEBUG - Limiting dataset to 5 random samples
+2025-04-23 01:03:12,085 - INFO - Split dataset into 5 training and 0 validation samples
+2025-04-23 01:03:12,253 - INFO - Created data loaders with 5 training and 0 validation samples
+2025-04-23 01:03:12,253 - INFO - Using default model configuration
+2025-04-23 01:03:12,357 - INFO - Using model with default initialization (no checkpoint loaded)
+2025-04-23 01:03:12,357 - INFO - Model configuration: {
+  "num_blocks": 4,
+  "residue_embed_dim": 128,
+  "pair_embed_dim": 64,
+  "num_attention_heads": 4,
+  "dropout": 0.1,
+  "ffn_dim": 512,
+  "max_relative_position": 32,
+  "seq_embed_dim": 16,
+  "num_embeddings": 5,
+  "padding_idx": 4,
+  "ipa_dim": 64,
+  "max_len": 500,
+  "use_conservation": false
+}
+2025-04-23 01:03:12,735 - INFO - Training parameters:
+2025-04-23 01:03:12,735 - INFO -   Batch size: 8
+2025-04-23 01:03:12,735 - INFO -   Learning rate: 0.001
+2025-04-23 01:03:12,735 - INFO -   Weight decay: 0.0001
+2025-04-23 01:03:12,735 - INFO -   Gradient clipping: 1.0
+2025-04-23 01:03:12,735 - INFO -   Loss weights: {'fape': 1.0, 'confidence': 0.1, 'angle': 0.5}
+2025-04-23 01:03:12,735 - INFO -   Max epochs: 1
+2025-04-23 01:03:12,735 - INFO - Epoch 1/1 (lr=1.00e-03)
+2025-04-23 01:03:13,066 - INFO -   Train loss: 10.1146
+2025-04-23 01:03:13,066 - INFO -   Train FAPE loss: 9.8537
+2025-04-23 01:03:13,066 - INFO -   Train confidence loss: 0.2680
+2025-04-23 01:03:13,066 - INFO -   Train angle loss: 0.4681
