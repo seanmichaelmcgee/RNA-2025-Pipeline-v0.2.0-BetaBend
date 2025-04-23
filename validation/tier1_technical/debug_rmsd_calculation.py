@@ -41,11 +41,13 @@ def test_rmsd_calculation():
     rmsd = compute_rmsd(pred_coords, true_coords, mask)
     print(f"  compute_rmsd result: {rmsd.item():.6f}")
     
-    # Compare with manual calculation
+    # Compare with manual calculation using improved robust calculation
     pred_aligned = stable_kabsch_align(pred_coords[0], true_coords[0])
     distances = robust_distance_calculation(pred_aligned, true_coords[0])
     manual_rmsd = torch.sqrt(torch.mean(distances ** 2)).item()
     print(f"  manual calculation result: {manual_rmsd:.6f}")
+    
+    # The improved RMSD handling should give consistent results regardless of approach
     
     # Case 2: Translation
     print("\nCase 2: Translation (should give RMSD = 0 after alignment)")
@@ -57,11 +59,13 @@ def test_rmsd_calculation():
     rmsd = compute_rmsd(pred_coords, true_coords, mask)
     print(f"  compute_rmsd result: {rmsd.item():.6f}")
     
-    # Compare with manual calculation
+    # Compare with manual calculation using improved robust calculation
     pred_aligned = stable_kabsch_align(pred_coords[0], true_coords[0])
     distances = robust_distance_calculation(pred_aligned, true_coords[0])
     manual_rmsd = torch.sqrt(torch.mean(distances ** 2)).item()
     print(f"  manual calculation result: {manual_rmsd:.6f}")
+    
+    # The improved RMSD handling should give consistent results regardless of approach
     
     # Case 3: Rotation
     print("\nCase 3: Rotation (should give RMSD = 0 after alignment)")
@@ -80,11 +84,13 @@ def test_rmsd_calculation():
     rmsd = compute_rmsd(pred_coords, true_coords, mask)
     print(f"  compute_rmsd result: {rmsd.item():.6f}")
     
-    # Compare with manual calculation
+    # Compare with manual calculation using improved robust calculation
     pred_aligned = stable_kabsch_align(pred_coords[0], true_coords[0])
     distances = robust_distance_calculation(pred_aligned, true_coords[0])
     manual_rmsd = torch.sqrt(torch.mean(distances ** 2)).item()
     print(f"  manual calculation result: {manual_rmsd:.6f}")
+    
+    # The improved RMSD handling should give consistent results regardless of approach
     
     # Case 4: Random noise (should give non-zero RMSD)
     print("\nCase 4: Random noise (should give non-zero RMSD)")
@@ -97,11 +103,13 @@ def test_rmsd_calculation():
     rmsd = compute_rmsd(pred_coords, true_coords, mask)
     print(f"  compute_rmsd result: {rmsd.item():.6f}")
     
-    # Compare with manual calculation
+    # Compare with manual calculation using improved robust calculation
     pred_aligned = stable_kabsch_align(pred_coords[0], true_coords[0])
     distances = robust_distance_calculation(pred_aligned, true_coords[0])
     manual_rmsd = torch.sqrt(torch.mean(distances ** 2)).item()
     print(f"  manual calculation result: {manual_rmsd:.6f}")
+    
+    # The improved RMSD handling should give consistent results regardless of approach
     
     # Case 5: Masked points (should only compute RMSD for unmasked points)
     print("\nCase 5: Masked points (should only compute RMSD for unmasked points)")

@@ -22,6 +22,7 @@ def compute_rmsd(
     mask: Optional[torch.Tensor] = None,
     aligned: bool = True,
     epsilon: float = 1e-8,
+    max_rmsd: float = 100.0,  # Maximum RMSD value (Å) to return
 ) -> torch.Tensor:
     """
     Calculate the Root Mean Square Deviation (RMSD) between predicted and true coordinates.
@@ -29,15 +30,195 @@ def compute_rmsd(
     RMSD measures the average distance between atoms in the predicted structure and the
     corresponding atoms in the reference structure after optimal superposition.
     
+    This implementation uses MDAnalysis's QCP algorithm for optimal alignment and RMSD
+    calculation, which is more robust and efficient than Kabsch, especially for
+    handling rotations and reflections.
+    
     Args:
         pred_coords: Predicted coordinates, shape (batch_size, seq_len, 3) or (seq_len, 3)
         true_coords: Ground truth coordinates, shape (batch_size, seq_len, 3) or (seq_len, 3)
         mask: Boolean mask, shape (batch_size, seq_len) or (seq_len), True for valid positions
         aligned: Whether to optimally align the structures before RMSD calculation
         epsilon: Small constant for numerical stability
+        max_rmsd: Maximum RMSD value to return (prevents extreme outliers)
         
     Returns:
         RMSD value(s), shape (batch_size) or scalar
+    """
+    try:
+        # Import MDAnalysis for QCP algorithm-based RMSD calculation
+        from MDAnalysis.analysis import rms
+    except ImportError:
+        logging.error("MDAnalysis is not installed. Falling back to PyTorch implementation.")
+        # Use the legacy Kabsch-based RMSD implementation as fallback
+        return _compute_rmsd_legacy(pred_coords, true_coords, mask, aligned, epsilon, max_rmsd)
+    
+    # Add batch dimension if not present
+    single_input = False
+    if len(pred_coords.shape) == 2:
+        single_input = True
+        pred_coords = pred_coords.unsqueeze(0)
+        true_coords = true_coords.unsqueeze(0)
+        if mask is not None and len(mask.shape) == 1:
+            mask = mask.unsqueeze(0)
+    
+    device = pred_coords.device
+    dtype = pred_coords.dtype
+    batch_size, seq_len, _ = pred_coords.shape
+    
+    # Handle shape mismatches
+    if true_coords.shape[1] != seq_len:
+        min_len = min(seq_len, true_coords.shape[1])
+        logging.warning(
+            f"Sequence length mismatch in RMSD: pred={seq_len}, true={true_coords.shape[1]}, using {min_len}"
+        )
+        pred_coords = pred_coords[:, :min_len, :]
+        true_coords = true_coords[:, :min_len, :]
+        if mask is not None:
+            mask = mask[:, :min_len]
+            
+    # Handle 4D tensor for true_coords (batch_size, seq_len, seq_len, 3)
+    if len(true_coords.shape) == 4:
+        # Extract diagonal entries (i==j) to get (batch_size, seq_len, 3)
+        batch_size, seq_len1, seq_len2, coords_dim = true_coords.shape
+        if seq_len1 != seq_len2:
+            logging.warning(f"Unexpected true_coords shape in RMSD: {true_coords.shape}")
+        
+        # Create indices for the diagonal
+        diag_indices = torch.arange(min(seq_len1, seq_len2), device=device)
+        # Extract diagonal for each batch
+        true_coords_diag = true_coords[:, diag_indices, diag_indices, :]
+        true_coords = true_coords_diag
+        
+        # Update seq_len based on extracted diagonal
+        seq_len = min(seq_len1, seq_len2)
+        pred_coords = pred_coords[:, :seq_len, :]
+    
+    # Create default mask if not provided
+    if mask is None:
+        mask = torch.ones(batch_size, seq_len, dtype=torch.bool, device=device)
+    
+    # Handle NaN inputs in coordinates
+    if torch.isnan(pred_coords).any() or torch.isnan(true_coords).any():
+        logging.warning("NaN values detected in input coordinates for RMSD calculation")
+        # Replace NaNs with zeros only for RMSD calculation
+        pred_coords = torch.nan_to_num(pred_coords, nan=0.0)
+        true_coords = torch.nan_to_num(true_coords, nan=0.0)
+        # Update mask to exclude positions with NaNs
+        if torch.isnan(pred_coords).any():
+            has_nan_pred = torch.isnan(pred_coords).any(dim=-1)
+            mask = mask & (~has_nan_pred)
+        if torch.isnan(true_coords).any():
+            has_nan_true = torch.isnan(true_coords).any(dim=-1)
+            mask = mask & (~has_nan_true)
+    
+    # Initialize results tensor
+    rmsd_values = torch.zeros(batch_size, dtype=dtype, device=device)
+    
+    for b in range(batch_size):
+        valid_mask = mask[b]
+        valid_count = valid_mask.sum().item()
+        
+        if valid_count < 3:  # Need at least 3 points for meaningful RMSD
+            logging.warning(f"Batch {b} has fewer than 3 valid points for RMSD calculation")
+            rmsd_values[b] = float('nan')
+            continue
+            
+        # Extract valid coordinates
+        p_valid = pred_coords[b, valid_mask]
+        t_valid = true_coords[b, valid_mask]
+        
+        # Special case for identical structures - fast path
+        if torch.allclose(p_valid, t_valid, atol=1e-8):
+            rmsd_values[b] = torch.tensor(0.0, dtype=dtype, device=device)
+            continue
+        
+        # Special case handling for degenerate/coincident points
+        p_centered = p_valid - p_valid.mean(dim=0, keepdim=True)
+        t_centered = t_valid - t_valid.mean(dim=0, keepdim=True)
+        
+        is_degenerate_pred = torch.allclose(p_centered, torch.zeros_like(p_centered), atol=1e-5)
+        is_degenerate_true = torch.allclose(t_centered, torch.zeros_like(t_centered), atol=1e-5)
+        
+        # If both are degenerate (all points coincident), just compare centers
+        if is_degenerate_pred and is_degenerate_true:
+            center_distance = torch.norm(p_valid.mean(dim=0) - t_valid.mean(dim=0))
+            rmsd_values[b] = center_distance
+            continue
+        
+        # If only one is degenerate, this is not a meaningful comparison
+        # Return a high but finite RMSD
+        if (is_degenerate_pred and not is_degenerate_true) or (not is_degenerate_pred and is_degenerate_true):
+            logging.warning(f"Batch {b} has degenerate points in only one structure - poor alignment expected")
+            rmsd_values[b] = torch.tensor(max_rmsd * 0.75, dtype=dtype, device=device)
+            continue
+            
+        try:
+            # Convert to numpy for MDAnalysis
+            p_valid_np = p_valid.detach().cpu().numpy()
+            t_valid_np = t_valid.detach().cpu().numpy()
+            
+            # Calculate RMSD using MDAnalysis QCP algorithm
+            if aligned:
+                # With alignment (centered and rotated to minimize RMSD)
+                rmsd = rms.rmsd(p_valid_np, t_valid_np, center=True, superposition=True)
+            else:
+                # Without alignment (just centered)
+                rmsd = rms.rmsd(p_valid_np, t_valid_np, center=True, superposition=False)
+            
+            # Convert result back to torch tensor and right device/dtype
+            rmsd = torch.tensor(rmsd, dtype=dtype, device=device)
+            
+            # Clamp to maximum reasonable value
+            rmsd = torch.clamp(rmsd, max=max_rmsd)
+            
+            rmsd_values[b] = rmsd
+            
+        except Exception as e:
+            logging.error(f"Error in RMSD calculation with MDAnalysis for batch {b}: {e}")
+            # Fall back to legacy implementation for this batch
+            try:
+                from src.losses import stable_kabsch_align, robust_distance_calculation
+                
+                if aligned:
+                    p_aligned = stable_kabsch_align(p_valid, t_valid, epsilon=epsilon)
+                else:
+                    p_aligned = p_valid
+                
+                sq_distances = robust_distance_calculation(p_aligned, t_valid, epsilon=epsilon) ** 2
+                mean_sq_dist = torch.mean(sq_distances)
+                rmsd = torch.sqrt(mean_sq_dist)
+                rmsd = torch.clamp(rmsd, max=max_rmsd)
+                
+                if torch.isnan(rmsd) or torch.isinf(rmsd):
+                    rmsd = torch.tensor(max_rmsd, dtype=dtype, device=device)
+                
+                rmsd_values[b] = rmsd
+                logging.warning(f"Used legacy fallback for batch {b}, result: {rmsd.item():.4f}")
+                
+            except Exception as inner_e:
+                logging.error(f"Both RMSD methods failed for batch {b}: {inner_e}")
+                rmsd_values[b] = torch.tensor(max_rmsd, dtype=dtype, device=device)
+    
+    # Return scalar if input was not batched
+    if single_input:
+        return rmsd_values[0]
+    else:
+        return rmsd_values
+
+
+def _compute_rmsd_legacy(
+    pred_coords: torch.Tensor,
+    true_coords: torch.Tensor,
+    mask: Optional[torch.Tensor] = None,
+    aligned: bool = True,
+    epsilon: float = 1e-8,
+    max_rmsd: float = 100.0,
+) -> torch.Tensor:
+    """
+    Legacy implementation of RMSD calculation using PyTorch and Kabsch algorithm.
+    
+    This is kept as a fallback in case MDAnalysis is not installed or fails.
     """
     # Add batch dimension if not present
     if len(pred_coords.shape) == 2:
@@ -82,6 +263,20 @@ def compute_rmsd(
     if mask is None:
         mask = torch.ones(batch_size, seq_len, dtype=torch.bool, device=device)
     
+    # Handle NaN inputs in coordinates
+    if torch.isnan(pred_coords).any() or torch.isnan(true_coords).any():
+        logging.warning("NaN values detected in input coordinates for RMSD calculation")
+        # Replace NaNs with zeros only for RMSD calculation
+        pred_coords = torch.nan_to_num(pred_coords, nan=0.0)
+        true_coords = torch.nan_to_num(true_coords, nan=0.0)
+        # Update mask to exclude positions with NaNs
+        if torch.isnan(pred_coords).any():
+            has_nan_pred = torch.isnan(pred_coords).any(dim=-1)
+            mask = mask & (~has_nan_pred)
+        if torch.isnan(true_coords).any():
+            has_nan_true = torch.isnan(true_coords).any(dim=-1)
+            mask = mask & (~has_nan_true)
+    
     # Initialize results tensor
     rmsd_values = torch.zeros(batch_size, dtype=dtype, device=device)
     
@@ -98,28 +293,63 @@ def compute_rmsd(
         p_valid = pred_coords[b, valid_mask]
         t_valid = true_coords[b, valid_mask]
         
-        # Special case for identical structures
+        # Special case for identical structures - fast path
         if torch.allclose(p_valid, t_valid, atol=1e-8):
             rmsd_values[b] = torch.tensor(0.0, dtype=dtype, device=device)
             continue
-            
-        if aligned:
-            # Use the stable Kabsch alignment from losses.py
-            from src.losses import stable_kabsch_align
-            p_aligned = stable_kabsch_align(p_valid, t_valid, epsilon=epsilon)
-        else:
-            # Use coordinates as is
-            p_aligned = p_valid
-            
-        # Compute squared differences
-        squared_diff = (p_aligned - t_valid) ** 2
         
-        # Sum over the coordinate dimension
-        sum_squared_diff = torch.sum(squared_diff, dim=-1)
+        # Special case handling for degenerate/coincident points
+        p_centered = p_valid - p_valid.mean(dim=0, keepdim=True)
+        t_centered = t_valid - t_valid.mean(dim=0, keepdim=True)
         
-        # Compute RMSD
-        rmsd = torch.sqrt(torch.mean(sum_squared_diff) + epsilon)
-        rmsd_values[b] = rmsd
+        is_degenerate_pred = torch.allclose(p_centered, torch.zeros_like(p_centered), atol=1e-5)
+        is_degenerate_true = torch.allclose(t_centered, torch.zeros_like(t_centered), atol=1e-5)
+        
+        # If both are degenerate (all points coincident), just compare centers
+        if is_degenerate_pred and is_degenerate_true:
+            center_distance = torch.norm(p_valid.mean(dim=0) - t_valid.mean(dim=0))
+            rmsd_values[b] = center_distance
+            continue
+        
+        # If only one is degenerate, this is not a meaningful comparison
+        # Return a high but finite RMSD
+        if (is_degenerate_pred and not is_degenerate_true) or (not is_degenerate_pred and is_degenerate_true):
+            logging.warning(f"Batch {b} has degenerate points in only one structure - poor alignment expected")
+            rmsd_values[b] = torch.tensor(max_rmsd * 0.75, dtype=dtype, device=device)
+            continue
+            
+        try:
+            if aligned:
+                # Use the stable Kabsch alignment from losses.py
+                from src.losses import stable_kabsch_align
+                p_aligned = stable_kabsch_align(p_valid, t_valid, epsilon=epsilon)
+            else:
+                # Use coordinates as is
+                p_aligned = p_valid
+                
+            # Use robust distance calculation for squared differences
+            from src.losses import robust_distance_calculation
+            sq_distances = robust_distance_calculation(p_aligned, t_valid, epsilon=epsilon) ** 2
+            
+            # Mean of squared distances
+            mean_sq_dist = torch.mean(sq_distances)
+            
+            # Take sqrt of mean squared distances
+            rmsd = torch.sqrt(mean_sq_dist)
+            
+            # Clamp to maximum reasonable value
+            rmsd = torch.clamp(rmsd, max=max_rmsd)
+            
+            # Final validity check
+            if torch.isnan(rmsd) or torch.isinf(rmsd):
+                logging.error(f"NaN/Inf in RMSD calculation for batch {b} despite safeguards")
+                rmsd = torch.tensor(max_rmsd, dtype=dtype, device=device)
+            
+            rmsd_values[b] = rmsd
+            
+        except Exception as e:
+            logging.error(f"Error in RMSD calculation for batch {b}: {e}")
+            rmsd_values[b] = torch.tensor(max_rmsd, dtype=dtype, device=device)
     
     # Return scalar if batch size is 1
     if batch_size == 1:
