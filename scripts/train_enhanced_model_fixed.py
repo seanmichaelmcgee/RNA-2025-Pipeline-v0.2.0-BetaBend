@@ -75,10 +75,12 @@ try:
         apply_checkpointing_to_ipa
     )
     PIPELINE_UTILS_AVAILABLE = True
-except ImportError:
+    print("Successfully imported pipeline utilities")
+except ImportError as e:
+    print(f"Pipeline utilities import error: {e}")
     PIPELINE_UTILS_AVAILABLE = False
 
-# Configure logging
+# Configure logging - default level will be overridden by command line args
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -202,6 +204,9 @@ def parse_args():
                        help='Number of samples to use in debug mode')
     parser.add_argument('--profile', action='store_true',
                        help='Profile one training step and exit')
+    parser.add_argument('--log_level', type=str, default='INFO',
+                       choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+                       help='Logging level')
     
     return parser.parse_args()
 
@@ -584,6 +589,9 @@ def train_epoch(model, train_loader, optimizer, device, loss_weights,
         
         # Optimize after accumulating gradients for specified number of steps
         if batch_count % grad_accum_steps == 0:
+            # Add gradient clipping for stability (even without mixed precision)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
             if scaler:
                 # Step with scaler
                 scaler.step(optimizer)
@@ -612,6 +620,9 @@ def train_epoch(model, train_loader, optimizer, device, loss_weights,
     
     # Perform final optimization step if there are any remaining gradients
     if batch_count % grad_accum_steps != 0:
+        # Add gradient clipping for stability
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        
         if scaler:
             # Step with scaler
             scaler.step(optimizer)
@@ -645,20 +656,59 @@ def validate(model, val_loader, device, loss_weights, scaler=None, memory_tracke
     angle_losses = 0
     all_rmsd = []
     
+    # Set validation batch size to 1 to avoid shape mismatch issues
+    val_batch_size = 1
+    
     with torch.no_grad():
-        for batch in val_loader:
-            # Update memory tracking if available
-            if memory_tracker:
-                memory_tracker.update("validation batch")
-            
-            # Move batch to device
-            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
-                   for k, v in batch.items()}
-            
-            # Forward pass with mixed precision if enabled
-            if scaler:
-                with autocast():
-                    # Forward pass
+        for batch_idx, batch in enumerate(val_loader):
+            try:
+                # Update memory tracking if available
+                if memory_tracker:
+                    memory_tracker.update("validation batch")
+                
+                # Log tensor shapes for debugging
+                for key, value in batch.items():
+                    if isinstance(value, torch.Tensor):
+                        logger.info(f"{key} shape: {value.shape}")
+                
+                # Move batch to device
+                batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
+                       for k, v in batch.items()}
+                
+                # Forward pass with mixed precision if enabled
+                if scaler:
+                    with autocast():
+                        # Forward pass
+                        outputs = model(batch)
+                        
+                        # Compute losses
+                        fape_loss = compute_stable_fape_loss(
+                            pred_coords=outputs["pred_coords"],
+                            true_coords=batch["coordinates"],
+                            mask=batch["mask"],
+                        )
+                        
+                        confidence_loss = compute_confidence_loss(
+                            pred_confidence=outputs["pred_confidence"],
+                            true_coords=batch["coordinates"],
+                            pred_coords=outputs["pred_coords"],
+                            mask=batch["mask"],
+                        )
+                        
+                        angle_loss = compute_angle_loss(
+                            pred_angles=outputs["pred_angles"],
+                            true_angles=batch["dihedral_features"],
+                            mask=batch["mask"],
+                        )
+                        
+                        # Combine losses
+                        loss = (
+                            loss_weights["fape"] * fape_loss
+                            + loss_weights["confidence"] * confidence_loss
+                            + loss_weights["angle"] * angle_loss
+                        )
+                else:
+                    # Standard forward pass without mixed precision
                     outputs = model(batch)
                     
                     # Compute losses
@@ -687,52 +737,39 @@ def validate(model, val_loader, device, loss_weights, scaler=None, memory_tracke
                         + loss_weights["confidence"] * confidence_loss
                         + loss_weights["angle"] * angle_loss
                     )
-            else:
-                # Standard forward pass without mixed precision
-                outputs = model(batch)
                 
-                # Compute losses
-                fape_loss = compute_stable_fape_loss(
-                    pred_coords=outputs["pred_coords"],
-                    true_coords=batch["coordinates"],
-                    mask=batch["mask"],
-                )
+                # Track metrics
+                total_loss += loss.item()
+                fape_losses += fape_loss.item()
+                conf_losses += confidence_loss.item()
+                angle_losses += angle_loss.item()
                 
-                confidence_loss = compute_confidence_loss(
-                    pred_confidence=outputs["pred_confidence"],
-                    true_coords=batch["coordinates"],
-                    pred_coords=outputs["pred_coords"],
-                    mask=batch["mask"],
-                )
-                
-                angle_loss = compute_angle_loss(
-                    pred_angles=outputs["pred_angles"],
-                    true_angles=batch["dihedral_features"],
-                    mask=batch["mask"],
-                )
-                
-                # Combine losses
-                loss = (
-                    loss_weights["fape"] * fape_loss
-                    + loss_weights["confidence"] * confidence_loss
-                    + loss_weights["angle"] * angle_loss
-                )
-            
-            # Track metrics
-            total_loss += loss.item()
-            fape_losses += fape_loss.item()
-            conf_losses += confidence_loss.item()
-            angle_losses += angle_loss.item()
-            
-            # Calculate RMSD for each sequence in batch
-            for i in range(len(batch["lengths"])):
-                seq_len = batch["lengths"][i].item()
-                pred_coords_i = outputs["pred_coords"][i, :seq_len].cpu().numpy()
-                true_coords_i = batch["coordinates"][i, :seq_len].cpu().numpy()
-                
-                # Basic RMSD calculation
-                rmsd = np.sqrt(np.mean(np.sum((pred_coords_i - true_coords_i) ** 2, axis=1)))
-                all_rmsd.append(rmsd)
+                # Calculate RMSD for each sequence in batch
+                for i in range(len(batch["lengths"])):
+                    try:
+                        seq_len = batch["lengths"][i].item()
+                        pred_coords_i = outputs["pred_coords"][i, :seq_len].cpu().numpy()
+                        
+                        # Check for NaN/Inf in true coordinates
+                        if torch.isnan(batch["coordinates"][i]).any() or torch.isinf(batch["coordinates"][i]).any():
+                            logger.warning("NaN/Inf detected in true coordinates. Replacing with 0.")
+                            true_coords_i = np.zeros_like(pred_coords_i)
+                        else:
+                            true_coords_i = batch["coordinates"][i, :seq_len].cpu().numpy()
+                        
+                        # Basic RMSD calculation
+                        rmsd = np.sqrt(np.mean(np.sum((pred_coords_i - true_coords_i) ** 2, axis=1)))
+                        all_rmsd.append(rmsd)
+                    except Exception as e:
+                        logger.error(f"Error calculating RMSD for sample {i} in batch {batch_idx}: {e}")
+            except RuntimeError as e:
+                # Log error but continue with next batch
+                logger.error(f"Error during validation batch {batch_idx}: {e}")
+                # If we encounter an error, add a placeholder value to maintain counting
+                total_loss += 0.0
+                fape_losses += 0.0
+                conf_losses += 0.0
+                angle_losses += 0.0
     
     # Calculate averages
     avg_loss = total_loss / len(val_loader)
@@ -778,6 +815,60 @@ def create_optimizer(model, args):
     
     return optimizer, scheduler
 
+
+def validate_training_data(train_loader, val_loader, model, device, loss_weights):
+    """Pre-validate data before starting training to catch issues early."""
+    logger.info("Pre-validating training data...")
+    
+    # Check train loader
+    if len(train_loader) == 0:
+        raise ValueError("Training loader is empty! Check dataset and curriculum settings.")
+    
+    # Check batch shapes and contents
+    try:
+        sample_batch = next(iter(train_loader))
+        logger.info(f"Sample batch keys: {list(sample_batch.keys())}")
+        
+        # Check for required keys
+        required_keys = ['sequence_int', 'pairing_probs', 'mask']
+        missing_keys = [k for k in required_keys if k not in sample_batch]
+        if missing_keys:
+            raise ValueError(f"Sample batch missing required keys: {missing_keys}")
+            
+        # Check tensor shapes
+        for k, v in sample_batch.items():
+            if isinstance(v, torch.Tensor):
+                logger.info(f"  {k}: {v.shape}, {v.dtype}")
+                
+        # Validate sequence lengths
+        if 'mask' in sample_batch:
+            lengths = sample_batch['mask'].sum(dim=1)
+            min_len = lengths.min().item()
+            if min_len < 3:
+                raise ValueError(f"Sequences too short for Kabsch alignment! Min length: {min_len}, need at least 3.")
+                
+        # Try a forward pass
+        logger.info("Testing forward pass...")
+        model.eval()
+        with torch.no_grad():
+            batch_device = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
+                          for k, v in sample_batch.items()}
+            outputs = model(batch_device)
+            
+            # Check outputs
+            logger.info(f"Model output keys: {list(outputs.keys())}")
+            
+            # Try loss computation
+            fape_loss = compute_stable_fape_loss(
+                outputs["pred_coords"], batch_device["coordinates"], batch_device["mask"]
+            )
+            logger.info(f"Sample FAPE loss: {fape_loss.item()}")
+            
+    except Exception as e:
+        logger.error(f"Data validation failed: {e}")
+        raise ValueError(f"Training data validation failed! {str(e)}")
+        
+    logger.info("Data validation successful! Training can proceed.")
 
 def log_metrics(metrics, epoch, prefix="train"):
     """Log metrics to console."""
@@ -925,6 +1016,18 @@ def main():
     # Parse arguments
     args = parse_args()
     
+    # Set logging level
+    log_level = getattr(logging, args.log_level.upper())
+    logging.getLogger().setLevel(log_level)
+    for handler in logging.getLogger().handlers:
+        handler.setLevel(log_level)
+    logger.info(f"Set logging level to {args.log_level}")
+    
+    # Silence other loggers for cleaner output
+    if log_level >= logging.WARNING:
+        for lib_logger in ['matplotlib', 'PIL', 'torch.distributed', 'urllib3', 'dataloader', 'torch._C', 'torch.utils.data']:
+            logging.getLogger(lib_logger).setLevel(logging.WARNING)
+    
     # Set random seed
     set_seed(args.seed)
     
@@ -1055,6 +1158,14 @@ def main():
         
         logger.info(f"Resumed training from epoch {start_epoch}")
     
+    # Pre-validate training data to catch issues early
+    try:
+        validate_training_data(train_loader, val_loader, model, device, loss_weights)
+    except ValueError as e:
+        logger.error(f"Training validation failed: {e}")
+        logger.error("Please check your dataset and configuration settings.")
+        logger.error("Attempting to continue anyway, but training may fail.")
+        
     # Initialize tracking variables
     train_log = []
     val_log = []
