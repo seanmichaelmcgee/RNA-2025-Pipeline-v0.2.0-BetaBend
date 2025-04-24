@@ -1,0 +1,19 @@
+{
+  "timestamp": "20250423-221222",
+  "environment": "local",
+  "models_used": [
+    "final_model"
+  ],
+  "ensemble": false,
+  "temperature": 0.1,
+  "num_samples": 5,
+  "metrics": {
+    "final_model": {
+      "val_rmsd": 7.593239451519988,
+      "epoch": 30
+    }
+  },
+  "submission_format": "kaggle_residue_format",
+  "submission_size": 2515,
+  "num_targets": 12
+}
