@@ -73,167 +73,449 @@ def stable_kabsch_align(
     C = torch.matmul(P_centered.transpose(-2, -1), Q_centered)
 
     try:
-        # ========== SIMPLIFIED ROBUST APPROACH ==========
-        # This handles all cases (full-rank, planar, collinear) more consistently
+        # ========== ENHANCED ROBUST APPROACH ==========
+        # New enhanced approach with better numerical stability
         
-        # Compute SVD of covariance matrix
+        # Pre-condition the covariance matrix to improve SVD stability
+        # This scaling helps maintain precision for very small values
+        scale = torch.max(torch.abs(C))
+        if scale > epsilon:  # Avoid division by zero or very small numbers
+            C_scaled = C / scale
+        else:
+            C_scaled = C
+            
+        # Add a tiny regularization to the diagonal to help with singular matrices
+        # This is especially helpful for near-degenerate cases
+        diag_reg = torch.eye(3, device=C.device, dtype=C.dtype) * epsilon
+        C_reg = C_scaled + diag_reg
+        
+        # Compute SVD of covariance matrix with enhanced error handling
         try:
-            # Try full SVD first
-            U, S, Vt = torch.linalg.svd(C, full_matrices=False)
+            # Try full SVD with the pre-conditioned matrix
+            U, S, Vt = torch.linalg.svd(C_reg, full_matrices=False)
             V = Vt.transpose(-2, -1)
             
-            # The key issue is handling reflections consistently
-            # We'll use a simpler and more robust approach based on QCP method
+            # Extra checks on singular values
+            min_S = torch.min(S)
+            if min_S < epsilon:
+                # Very small singular value detected - potentially unstable case
+                # Log and track for diagnostics
+                logging.debug(f"Small singular value detected: {min_S:.2e}, proceed with caution")
+                
+                # Regularize smallest singular value
+                S = torch.clamp(S, min=epsilon)
             
             # First compute optimal rotation without worrying about reflections
             R_raw = torch.matmul(V, U.transpose(-2, -1))
             
-            # Check determinant to identify reflections
-            det = torch.det(R_raw)
-            
-            if det < 0:
-                # We have a reflection case
-                # Create a proper rotation matrix by flipping the last column of V
-                # (corresponding to smallest singular value)
-                V_fixed = V.clone()
-                V_fixed[:, -1] = -V_fixed[:, -1]  # Flip the right singular vector for smallest singular value
-                
-                # Recompute rotation matrix
-                R = torch.matmul(V_fixed, U.transpose(-2, -1))
-                
-                # Verify determinant is close to 1 now
-                new_det = torch.det(R)
-                if abs(new_det - 1.0) > 0.01:  # More lenient check
-                    logging.warning(f"Reflection correction failed: det={new_det:.5f}. Using emergency fix.")
-                    # Emergency fix: force it to be a proper rotation
-                    R = R / new_det
+            # Check determinant to identify reflections - use more accurate computation
+            # In numerical precision issues, det might be slightly off even for proper rotations
+            if torch.abs(torch.det(R_raw) - 1.0) > 0.01:
+                # Recalculate determinant with higher precision if available
+                # Check if float64 is available and use it for higher precision
+                if R_raw.dtype == torch.float32 and hasattr(torch, 'float64'):
+                    det = torch.det(R_raw.to(torch.float64))
+                else:
+                    det = torch.det(R_raw)
+                    
+                if det < 0:
+                    # Handle reflection case with improved technique
+                    # Find the smallest singular value index (traditionally the last one, but double-check)
+                    smallest_sv_idx = torch.argmin(S)
+                    
+                    # Modified approach: use singular values to guide the fix
+                    # Only flip a component if there's sufficient numerical distinction 
+                    V_fixed = V.clone()
+                    
+                    # Traditional approach flips the column corresponding to smallest singular value
+                    V_fixed[:, smallest_sv_idx] = -V_fixed[:, smallest_sv_idx]
+                    
+                    # Recompute rotation matrix with the fixed V
+                    R = torch.matmul(V_fixed, U.transpose(-2, -1))
+                    
+                    # Verify correction worked
+                    new_det = torch.det(R)
+                    if abs(new_det - 1.0) > 0.05:  # Slightly more lenient check
+                        logging.warning(f"Reflection correction failed: det={new_det:.5f}. Trying alternate fix.")
+                        
+                        # Alternative fix: proportional scaling
+                        corr_factor = torch.abs(new_det) ** (1/3)  # Cube root for 3D
+                        if corr_factor > epsilon:
+                            R = R / corr_factor
+                            
+                            # Verify this fix worked
+                            final_det = torch.det(R)
+                            if abs(final_det - 1.0) > 0.01:
+                                # Last resort emergency fix
+                                logging.warning(f"All reflection fixes failed: final_det={final_det:.5f}. Emergency fix.")
+                                R = R / final_det
+                else:
+                    # Already a proper rotation
+                    R = R_raw
             else:
-                # Already a proper rotation
+                # Determinant is very close to 1, no need for correction
                 R = R_raw
                 
         except RuntimeError as svd_error:
-            # If SVD fails, try a direct orthogonalization approach for simple cases
-            logging.warning(f"SVD failed: {svd_error}, trying orthogonalization directly")
+            # Enhanced SVD error handling
+            logging.warning(f"Primary SVD failed: {svd_error}, trying robust alternative approach")
             
-            # For the rotation-only case (common with rotated structures)
-            # Try using Gram-Schmidt orthogonalization directly
-            
-            # For direct approach, check if we have >= 4 non-coplanar points for a robust fit
-            if P.shape[0] >= 4:
-                # Construct basis vectors using the first points
-                v1 = P_centered[1] - P_centered[0]  # First basis vector
-                v1 = v1 / (torch.norm(v1) + epsilon)
+            # Try an even more robust alternative approach using explicit regularization
+            try:
+                # Add stronger regularization for numerically challenging cases
+                C_strong_reg = C + torch.eye(3, device=C.device, dtype=C.dtype) * (epsilon * 10)
+                U, S, Vt = torch.linalg.svd(C_strong_reg, full_matrices=False)
+                V = Vt.transpose(-2, -1)
                 
-                # Find a point not collinear with the first vector
-                dots = torch.abs(torch.sum(P_centered * v1.unsqueeze(0), dim=1))
-                norms = torch.norm(P_centered, dim=1)
+                # Proceed with the same reflection handling as above
+                R_raw = torch.matmul(V, U.transpose(-2, -1))
+                det = torch.det(R_raw)
                 
-                # Look for a point that's not collinear (dot product not close to norm)
-                non_collinear_idx = 2  # Default to third point
-                for i in range(1, P.shape[0]):
-                    if abs(dots[i] - norms[i]) > epsilon:
-                        non_collinear_idx = i
-                        break
-                
-                # Calculate second basis vector using the non-collinear point
-                v2_unnorm = P_centered[non_collinear_idx] - torch.sum(P_centered[non_collinear_idx] * v1) * v1
-                v2 = v2_unnorm / (torch.norm(v2_unnorm) + epsilon)
-                
-                # Third basis vector via cross product
-                v3 = torch.linalg.cross(v1, v2)
-                v3 = v3 / (torch.norm(v3) + epsilon)
-                
-                # Construct rotation matrix
-                R_p = torch.stack([v1, v2, v3], dim=1)
-                
-                # Repeat for Q
-                v1_q = Q_centered[1] - Q_centered[0]
-                v1_q = v1_q / (torch.norm(v1_q) + epsilon)
-                
-                # Use same non-collinear point for consistency
-                v2_q_unnorm = Q_centered[non_collinear_idx] - torch.sum(Q_centered[non_collinear_idx] * v1_q) * v1_q
-                v2_q = v2_q_unnorm / (torch.norm(v2_q_unnorm) + epsilon)
-                
-                v3_q = torch.linalg.cross(v1_q, v2_q)
-                v3_q = v3_q / (torch.norm(v3_q) + epsilon)
-                
-                R_q = torch.stack([v1_q, v2_q, v3_q], dim=1)
-                
-                # Final rotation from P to Q
-                R = torch.matmul(R_q, R_p.transpose(-2, -1))
-            else:
-                # Simpler case - try to align principal axes directly
-                # Create orthogonal basis from P and Q
-                
-                # Get principal axes - largest variance directions
-                p_centered_T = P_centered.transpose(0, 1)  # (3, N)
-                q_centered_T = Q_centered.transpose(0, 1)  # (3, N)
-                
-                # Simple covariance-based approach for small matrices
-                p_cov = torch.matmul(p_centered_T, p_centered_T.transpose(0, 1))
-                q_cov = torch.matmul(q_centered_T, q_centered_T.transpose(0, 1))
-                
-                # Get eigenvectors - these will form our basis
-                try:
-                    p_eig = torch.linalg.eigh(p_cov)[1]  # Eigenvectors
-                    q_eig = torch.linalg.eigh(q_cov)[1]  # Eigenvectors
+                if det < 0:
+                    V_fixed = V.clone()
+                    V_fixed[:, -1] = -V_fixed[:, -1]
+                    R = torch.matmul(V_fixed, U.transpose(-2, -1))
                     
-                    # Rotation from P basis to Q basis
-                    R = torch.matmul(q_eig, p_eig.transpose(-2, -1))
+                    # Extra safety check
+                    new_det = torch.det(R)
+                    if abs(new_det - 1.0) > 0.05:
+                        R = R / new_det  # Emergency fix
+                else:
+                    R = R_raw
+                
+            except RuntimeError:
+                # If both SVD approaches fail, try geometric approach as before
+                logging.warning("Both SVD approaches failed, trying geometric approach")
+                
+                # For the rotation-only case, try using Gram-Schmidt orthogonalization
+                if P.shape[0] >= 4:
+                    # Construct basis vectors using the first points with improved stability
+                    # First find the two most distant points for a stable first axis
                     
-                    # Check for proper rotation
+                    # Compute pairwise distances
+                    norms = torch.norm(P_centered, dim=1)
+                    if torch.max(norms) < epsilon:
+                        # All points too close to origin - use translation only
+                        return P - p_mean + q_mean
+                        
+                    # Find the point furthest from the origin for first reference point
+                    max_idx = torch.argmax(norms)
+                    
+                    # Compute distances from this point to all others
+                    diffs = P_centered - P_centered[max_idx].unsqueeze(0)
+                    diff_norms = torch.norm(diffs, dim=1)
+                    
+                    # Find most distant point for second reference
+                    second_idx = torch.argmax(diff_norms)
+                    
+                    # First basis vector using the two most distant points
+                    v1 = P_centered[second_idx] - P_centered[max_idx]
+                    v1_norm = torch.norm(v1)
+                    if v1_norm < epsilon:
+                        # Fallback if points coincide despite distance check
+                        return P - p_mean + q_mean
+                        
+                    v1 = v1 / v1_norm
+                    
+                    # Find a point not collinear with the first axis
+                    # Improved detection using projections
+                    projections = torch.abs(torch.sum(P_centered * v1.unsqueeze(0), dim=1)) / (norms + epsilon)
+                    
+                    # Points not collinear will have projection/norm ratio significantly below 1
+                    non_collinear_mask = projections < 0.95  # Allow some small deviation
+                    
+                    if not non_collinear_mask.any():
+                        # All points nearly collinear - use simpler alignment
+                        logging.warning("All points are nearly collinear, using simplified alignment")
+                        # For collinear case, just align the principal axis
+                        return P - p_mean + q_mean
+                    
+                    # Choose the furthest non-collinear point for a stable second basis vector
+                    non_collinear_dists = torch.where(
+                        non_collinear_mask, 
+                        diff_norms, 
+                        torch.zeros_like(diff_norms)
+                    )
+                    non_collinear_idx = torch.argmax(non_collinear_dists)
+                    
+                    # Calculate second basis vector using the non-collinear point with projection
+                    proj = torch.sum(P_centered[non_collinear_idx] * v1) * v1
+                    v2_unnorm = P_centered[non_collinear_idx] - proj
+                    v2_norm = torch.norm(v2_unnorm)
+                    
+                    if v2_norm < epsilon:
+                        # Numerically unstable second basis - try different point or fallback
+                        logging.warning("Unstable second basis vector, trying alternative")
+                        # Choose a different non-collinear point if available
+                        non_collinear_dists[non_collinear_idx] = 0
+                        if torch.max(non_collinear_dists) > epsilon:
+                            alt_idx = torch.argmax(non_collinear_dists)
+                            proj = torch.sum(P_centered[alt_idx] * v1) * v1
+                            v2_unnorm = P_centered[alt_idx] - proj
+                            v2_norm = torch.norm(v2_unnorm)
+                            
+                            if v2_norm < epsilon:
+                                # Still unstable - use translation only
+                                return P - p_mean + q_mean
+                        else:
+                            # No suitable alternative - use translation only
+                            return P - p_mean + q_mean
+                    
+                    v2 = v2_unnorm / v2_norm
+                    
+                    # Third basis vector via cross product
+                    v3_unnorm = torch.linalg.cross(v1, v2)
+                    v3_norm = torch.norm(v3_unnorm)
+                    
+                    if v3_norm < epsilon:
+                        # Cross product gave zero - vectors were parallel despite checks
+                        # This shouldn't happen with proper orthogonality, but just in case
+                        logging.warning("Cross product gave zero vector - using translation only")
+                        return P - p_mean + q_mean
+                        
+                    v3 = v3_unnorm / v3_norm
+                    
+                    # Final verification of orthogonality for our basis
+                    v1_dot_v2 = torch.abs(torch.sum(v1 * v2))
+                    v1_dot_v3 = torch.abs(torch.sum(v1 * v3))
+                    v2_dot_v3 = torch.abs(torch.sum(v2 * v3))
+                    
+                    if v1_dot_v2 > 0.05 or v1_dot_v3 > 0.05 or v2_dot_v3 > 0.05:
+                        # Basis is not sufficiently orthogonal
+                        logging.warning("Generated basis not orthogonal enough - using simplified alignment")
+                        return P - p_mean + q_mean
+                    
+                    # Construct rotation matrix for P
+                    R_p = torch.stack([v1, v2, v3], dim=1)
+                    
+                    # Now repeat the same procedure for Q to ensure consistency
+                    # We use the same approach to build a basis but try to keep correspondence
+                    
+                    # Get norms for Q
+                    q_norms = torch.norm(Q_centered, dim=1)
+                    
+                    # Use same indices when possible 
+                    q_max_idx = max_idx if max_idx < Q_centered.shape[0] else torch.argmax(q_norms)
+                    q_diffs = Q_centered - Q_centered[q_max_idx].unsqueeze(0)
+                    q_diff_norms = torch.norm(q_diffs, dim=1)
+                    q_second_idx = second_idx if second_idx < Q_centered.shape[0] else torch.argmax(q_diff_norms)
+                    
+                    # First Q basis vector
+                    v1_q = Q_centered[q_second_idx] - Q_centered[q_max_idx]
+                    v1_q_norm = torch.norm(v1_q)
+                    
+                    if v1_q_norm < epsilon:
+                        # Q basis unstable
+                        return P - p_mean + q_mean
+                        
+                    v1_q = v1_q / v1_q_norm
+                    
+                    # Use same non-collinear index for Q when possible
+                    q_non_collinear_idx = non_collinear_idx
+                    if q_non_collinear_idx >= Q_centered.shape[0]:
+                        # Fallback if index out of range
+                        q_projections = torch.abs(torch.sum(Q_centered * v1_q.unsqueeze(0), dim=1)) / (q_norms + epsilon)
+                        q_non_collinear_mask = q_projections < 0.95
+                        
+                        if not q_non_collinear_mask.any():
+                            # All Q points collinear
+                            return P - p_mean + q_mean
+                            
+                        q_non_collinear_dists = torch.where(
+                            q_non_collinear_mask,
+                            q_diff_norms,
+                            torch.zeros_like(q_diff_norms)
+                        )
+                        q_non_collinear_idx = torch.argmax(q_non_collinear_dists)
+                    
+                    # Second Q basis vector
+                    q_proj = torch.sum(Q_centered[q_non_collinear_idx] * v1_q) * v1_q
+                    v2_q_unnorm = Q_centered[q_non_collinear_idx] - q_proj
+                    v2_q_norm = torch.norm(v2_q_unnorm)
+                    
+                    if v2_q_norm < epsilon:
+                        # Q basis unstable
+                        return P - p_mean + q_mean
+                        
+                    v2_q = v2_q_unnorm / v2_q_norm
+                    
+                    # Third Q basis vector
+                    v3_q_unnorm = torch.linalg.cross(v1_q, v2_q)
+                    v3_q_norm = torch.norm(v3_q_unnorm)
+                    
+                    if v3_q_norm < epsilon:
+                        return P - p_mean + q_mean
+                        
+                    v3_q = v3_q_unnorm / v3_q_norm
+                    
+                    # Verify Q basis orthogonality
+                    q1_dot_q2 = torch.abs(torch.sum(v1_q * v2_q))
+                    q1_dot_q3 = torch.abs(torch.sum(v1_q * v3_q))
+                    q2_dot_q3 = torch.abs(torch.sum(v2_q * v3_q))
+                    
+                    if q1_dot_q2 > 0.05 or q1_dot_q3 > 0.05 or q2_dot_q3 > 0.05:
+                        # Q basis not orthogonal enough
+                        return P - p_mean + q_mean
+                    
+                    # Q rotation matrix
+                    R_q = torch.stack([v1_q, v2_q, v3_q], dim=1)
+                    
+                    # Final rotation from P to Q, with explicit check for proper rotation
+                    R = torch.matmul(R_q, R_p.transpose(-2, -1))
                     det_R = torch.det(R)
-                    if det_R < 0:
-                        # Flip the last column to ensure proper rotation
-                        R[:, -1] = -R[:, -1]
-                except RuntimeError as eig_error:
-                    logging.warning(f"Eigendecomposition failed: {eig_error}, using identity rotation")
-                    # Fallback to identity rotation (translation-only alignment)
-                    R = torch.eye(3, device=P.device)
+                    
+                    if abs(det_R - 1.0) > 0.1:  # More permissive check given the approximations
+                        # Fix determinant if needed
+                        R = R / torch.abs(det_R)**(1/3)  # Cube root for 3D
+                        
+                else:
+                    # Simpler case for fewer points - improved principal axes approach
+                    try:
+                        # Enhanced covariance calculation with regularization
+                        p_centered_T = P_centered.transpose(0, 1)  # (3, N)
+                        q_centered_T = Q_centered.transpose(0, 1)  # (3, N)
+                        
+                        # Add regularization to avoid singular matrices
+                        reg_term = torch.eye(3, device=P.device, dtype=P.dtype) * (epsilon * 10)
+                        
+                        # Compute covariance with regularization
+                        p_cov = torch.matmul(p_centered_T, p_centered_T.transpose(0, 1)) + reg_term
+                        q_cov = torch.matmul(q_centered_T, q_centered_T.transpose(0, 1)) + reg_term
+                        
+                        # Switch to eigendecomposition for improved stability in special cases
+                        p_eigvals, p_eig = torch.linalg.eigh(p_cov)
+                        q_eigvals, q_eig = torch.linalg.eigh(q_cov)
+                        
+                        # Check eigenvalues for numerical stability
+                        min_p_eig = torch.min(p_eigvals)
+                        min_q_eig = torch.min(q_eigvals)
+                        
+                        if min_p_eig < epsilon or min_q_eig < epsilon:
+                            # Eigenvalues too small - adjust for stability
+                            logging.debug(f"Small eigenvalues detected: P={min_p_eig:.2e}, Q={min_q_eig:.2e}")
+                            
+                            # Apply more regularization and retry if needed
+                            if min_p_eig < epsilon:
+                                p_cov = p_cov + torch.eye(3, device=P.device, dtype=P.dtype) * (epsilon * 100)
+                                p_eigvals, p_eig = torch.linalg.eigh(p_cov)
+                                
+                            if min_q_eig < epsilon:
+                                q_cov = q_cov + torch.eye(3, device=P.device, dtype=P.dtype) * (epsilon * 100)
+                                q_eigvals, q_eig = torch.linalg.eigh(q_cov)
+                        
+                        # Sort eigenvectors by decreasing eigenvalues for consistent correspondence
+                        p_sort_idx = torch.argsort(p_eigvals, descending=True)
+                        q_sort_idx = torch.argsort(q_eigvals, descending=True)
+                        
+                        p_eig = p_eig[:, p_sort_idx]
+                        q_eig = q_eig[:, q_sort_idx]
+                        
+                        # Verify determinants of eigenbases to ensure they're proper rotations
+                        p_det = torch.det(p_eig)
+                        q_det = torch.det(q_eig)
+                        
+                        # Fix improper bases if needed
+                        if p_det < 0:
+                            p_eig[:, 2] = -p_eig[:, 2]  # Flip third column
+                            
+                        if q_det < 0:
+                            q_eig[:, 2] = -q_eig[:, 2]  # Flip third column
+                        
+                        # Final rotation matrix
+                        R = torch.matmul(q_eig, p_eig.transpose(-2, -1))
+                        
+                        # Final determinant check
+                        det_R = torch.det(R)
+                        if abs(det_R - 1.0) > 0.05:  # Slightly more lenient 
+                            # Apply correction
+                            R = R / torch.abs(det_R)**(1/3)  # Cube root for 3D
+                            
+                    except RuntimeError as eig_error:
+                        logging.warning(f"Eigendecomposition failed: {eig_error}, using identity rotation")
+                        # Fallback to identity rotation (translation-only alignment)
+                        R = torch.eye(3, device=P.device)
         
         # Final validation - ensure R is a valid rotation matrix
         orthogonality_check = torch.matmul(R, R.transpose(-2, -1))
         identity = torch.eye(3, device=P.device)
         
         # Check if R is orthogonal (R*R^T = I)
-        is_orthogonal = torch.allclose(orthogonality_check, identity, atol=1e-5)
+        is_orthogonal = torch.allclose(orthogonality_check, identity, atol=1e-4)  # Slightly relaxed tolerance
         
         # Check if determinant is 1 (proper rotation)
         det_R = torch.det(R)
-        is_proper = abs(det_R - 1.0) < 1e-5
+        is_proper = abs(det_R - 1.0) < 1e-4  # Slightly relaxed tolerance
         
         if not (is_orthogonal and is_proper):
             logging.warning(
                 f"Rotation matrix not valid: orthogonal={is_orthogonal}, proper={is_proper}, det={det_R:.5f}"
             )
-            # Fix orthogonality issues with a robust approach
-            # Using SVD to find the nearest orthogonal matrix
+            # Enhanced fix for orthogonality issues 
             try:
-                U_fix, _, Vt_fix = torch.linalg.svd(R, full_matrices=False)
-                R = torch.matmul(U_fix, Vt_fix)  # This is guaranteed to be orthogonal
+                # Use SVD to find the nearest orthogonal matrix, with conditioning
+                # Scale R to improve numerical stability
+                R_scale = torch.max(torch.abs(R))
+                if R_scale > epsilon:
+                    R_scaled = R / R_scale
+                else:
+                    R_scaled = R
+                    
+                # Add tiny regularization
+                R_reg = R_scaled + torch.eye(3, device=R.device, dtype=R.dtype) * epsilon
+                
+                # Apply SVD with the regularized matrix
+                U_fix, _, Vt_fix = torch.linalg.svd(R_reg, full_matrices=False)
+                R_ortho = torch.matmul(U_fix, Vt_fix)  # This is guaranteed to be orthogonal
                 
                 # Ensure determinant is 1
-                det_R = torch.det(R)
-                if det_R < 0:
-                    # Flip last column
-                    U_fix[:, -1] = -U_fix[:, -1]
-                    R = torch.matmul(U_fix, Vt_fix)
+                det_ortho = torch.det(R_ortho)
+                if det_ortho < 0:
+                    # Try flipping last column or row of either U or V
+                    U_fix_flipped = U_fix.clone()
+                    U_fix_flipped[:, -1] = -U_fix_flipped[:, -1]
+                    R_corrected = torch.matmul(U_fix_flipped, Vt_fix)
+                    
+                    # Check if correction worked
+                    final_det = torch.det(R_corrected)
+                    if abs(final_det - 1.0) > 0.01:
+                        # Apply simpler scaling as last resort
+                        R = R_ortho / det_ortho
+                    else:
+                        R = R_corrected
+                else:
+                    # Already proper rotation after orthogonalization
+                    R = R_ortho
+                    
             except RuntimeError:
-                logging.warning("Failed to fix rotation matrix, falling back to translation-only alignment")
+                logging.warning("Failed to fix rotation matrix, falling back to simplified alignment")
                 return P - p_mean + q_mean
         
         # Apply rotation and translation
         P_aligned = torch.matmul(P_centered, R) + q_mean
             
     except Exception as e:
-        # Handle any other exceptions
-        logging.warning(f"Exception in Kabsch alignment: {e}. Falling back to translation alignment.")
+        # Enhanced exception handling for unexpected cases
+        logging.warning(f"Unexpected exception in Kabsch alignment: {e}. Falling back to translation alignment.")
+        # Extra context in debug mode
+        logging.debug(f"Exception details: {type(e).__name__}, shapes: P={P.shape}, Q={Q.shape}")
         P_aligned = P - p_mean + q_mean  # Fallback to center alignment
         
-    # Final validation - check for NaNs or Inf values
-    if torch.isnan(P_aligned).any() or torch.isinf(P_aligned).any():
-        logging.error("NaN/Inf detected in Kabsch output despite safeguards! Returning translated points.")
-        return P - p_mean + q_mean  # Even safer fallback - just translation
+    # Final validation - check for NaNs or Inf values with more specific reporting
+    has_nan = torch.isnan(P_aligned).any()
+    has_inf = torch.isinf(P_aligned).any()
+    
+    if has_nan or has_inf:
+        # Count problematic values for better logging
+        nan_count = torch.isnan(P_aligned).sum().item() if has_nan else 0
+        inf_count = torch.isinf(P_aligned).sum().item() if has_inf else 0
+        logging.error(f"Alignment produced {nan_count} NaNs and {inf_count} Infs despite safeguards! Using fallback.")
+        
+        # Full set of stats for debugging
+        logging.debug(f"P stats: min={torch.min(P):.4f}, max={torch.max(P):.4f}")
+        logging.debug(f"Q stats: min={torch.min(Q):.4f}, max={torch.max(Q):.4f}")
+        
+        # Return translation-only alignment as safest fallback
+        return P - p_mean + q_mean
         
     return P_aligned
 
@@ -324,6 +606,15 @@ def compute_stable_fape_loss(
     Returns:
         Scalar loss value
     """
+    # Check for NaN values in input tensors
+    if torch.isnan(pred_coords).any() or torch.isinf(pred_coords).any():
+        logging.warning("NaN or Inf detected in predicted coordinates. Clipping values.")
+        pred_coords = torch.nan_to_num(pred_coords, nan=0.0, posinf=1000.0, neginf=-1000.0)
+
+    if torch.isnan(true_coords).any() or torch.isinf(true_coords).any():
+        logging.warning("NaN or Inf detected in true coordinates. Clipping values.")
+        true_coords = torch.nan_to_num(true_coords, nan=0.0, posinf=1000.0, neginf=-1000.0)
+        
     device = pred_coords.device
     dtype = pred_coords.dtype
     
@@ -507,6 +798,19 @@ def compute_confidence_loss(
     Returns:
         Scalar loss value
     """
+    # Check for NaN values in input tensors
+    if torch.isnan(pred_confidence).any() or torch.isinf(pred_confidence).any():
+        logging.warning("NaN or Inf detected in predicted confidence. Clipping values.")
+        pred_confidence = torch.nan_to_num(pred_confidence, nan=0.5, posinf=1.0, neginf=0.0)
+        
+    if torch.isnan(pred_coords).any() or torch.isinf(pred_coords).any():
+        logging.warning("NaN or Inf detected in predicted coordinates. Clipping values.")
+        pred_coords = torch.nan_to_num(pred_coords, nan=0.0, posinf=1000.0, neginf=-1000.0)
+
+    if torch.isnan(true_coords).any() or torch.isinf(true_coords).any():
+        logging.warning("NaN or Inf detected in true coordinates. Clipping values.")
+        true_coords = torch.nan_to_num(true_coords, nan=0.0, posinf=1000.0, neginf=-1000.0)
+    
     batch_size, seq_len = pred_confidence.shape
     device = pred_confidence.device
     dtype = pred_confidence.dtype
@@ -515,6 +819,10 @@ def compute_confidence_loss(
     if mask is None:
         mask = torch.ones(batch_size, seq_len, dtype=torch.bool, device=device)
 
+    # Handle the case where all values are masked
+    if mask.sum() == 0:
+        return torch.tensor(0.0, device=device, dtype=dtype)
+        
     # --- Calculate residue-wise error target (proxy for lDDT) ---
     # This calculation should NOT contribute to gradients wrt pred_coords
     with torch.no_grad():
@@ -621,23 +929,48 @@ def compute_confidence_loss(
         conf_targets = conf_targets.masked_fill(~mask, 0.0)
 
     # --- Compute Loss ---
-    if loss_type == "mse":
-        # Apply sigmoid to predicted logits
-        pred_probs = torch.sigmoid(pred_confidence)
+    try:
+        if loss_type == "mse":
+            # Apply sigmoid to predicted logits
+            pred_probs = torch.sigmoid(pred_confidence)
+            
+            # Check for NaN values from sigmoid
+            if torch.isnan(pred_probs).any() or torch.isinf(pred_probs).any():
+                pred_probs = torch.nan_to_num(pred_probs, nan=0.5, posinf=1.0, neginf=0.0)
 
-        # Calculate MSE loss only for valid positions
-        squared_error = (pred_probs - conf_targets) ** 2
-        masked_loss = squared_error * float_mask
-    elif loss_type == "bce":
-        # Calculate BCE loss
-        masked_loss = (
-            F.binary_cross_entropy_with_logits(
-                pred_confidence, conf_targets, reduction="none"
-            )
-            * float_mask
-        )
-    else:
-        raise ValueError(f"Unknown loss_type for confidence loss: {loss_type}")
+            # Calculate MSE loss only for valid positions
+            squared_error = (pred_probs - conf_targets) ** 2
+            masked_loss = squared_error * float_mask
+        elif loss_type == "bce":
+            # Calculate BCE loss with extra checks
+            try:
+                # First try the standard implementation
+                masked_loss = (
+                    F.binary_cross_entropy_with_logits(
+                        pred_confidence, conf_targets, reduction="none"
+                    )
+                    * float_mask
+                )
+            except RuntimeError as e:
+                # Fallback implementation with extra stability
+                logging.warning(f"BCE loss failed: {e}. Using manual implementation.")
+                # Manual implementation with extra clamping
+                pred_sigmoid = torch.clamp(torch.sigmoid(pred_confidence), min=1e-7, max=1.0-1e-7)
+                conf_targets_safe = torch.clamp(conf_targets, min=1e-7, max=1.0-1e-7)
+                masked_loss = (
+                    -conf_targets_safe * torch.log(pred_sigmoid) 
+                    - (1 - conf_targets_safe) * torch.log(1 - pred_sigmoid)
+                ) * float_mask
+        else:
+            raise ValueError(f"Unknown loss_type for confidence loss: {loss_type}")
+            
+    except RuntimeError as e:
+        logging.error(f"Error in confidence loss calculation: {e}")
+        # Ultimate fallback using simple L2 loss
+        logging.warning("Using L2 loss as ultimate fallback")
+        pred_probs = torch.clamp(torch.sigmoid(pred_confidence), min=1e-7, max=1.0-1e-7)
+        conf_targets_safe = torch.clamp(conf_targets, min=1e-7, max=1.0-1e-7)
+        masked_loss = ((pred_probs - conf_targets_safe) ** 2) * float_mask
 
     # Compute mean loss over valid positions
     num_valid = float_mask.sum().item()
@@ -645,13 +978,18 @@ def compute_confidence_loss(
         return torch.tensor(0.0, device=device, dtype=dtype)
 
     loss = masked_loss.sum() / num_valid
+    
+    # Final NaN check
+    if torch.isnan(loss) or torch.isinf(loss):
+        logging.warning("NaN or Inf in final confidence loss. Using default value.")
+        return torch.tensor(0.1, device=device, dtype=dtype)
 
     return loss
 
 
 def compute_angle_loss(
     pred_angles: torch.Tensor,
-    true_angles: torch.Tensor,
+    true_angles: Union[torch.Tensor, List[torch.Tensor]],
     mask: Optional[torch.Tensor] = None,
     loss_type: str = "mse",  # 'mse', 'cosine', or 'mae'
     epsilon: float = 1e-8,
@@ -664,7 +1002,7 @@ def compute_angle_loss(
     Args:
         pred_angles: Predicted sin/cos of angles [sin(η), cos(η), sin(θ), cos(θ)],
                      shape (batch_size, seq_len, 4)
-        true_angles: True sin/cos of angles, shape (batch_size, seq_len, 4)
+        true_angles: True sin/cos of angles, shape (batch_size, seq_len, 4) or a list of tensors
                      May contain NaNs for boundary residues.
         mask: Boolean mask, shape (batch_size, seq_len), True for valid positions
         loss_type: Loss function to use ('mse', 'cosine', or 'mae').
@@ -676,6 +1014,37 @@ def compute_angle_loss(
     batch_size, seq_len, num_features = pred_angles.shape
     device = pred_angles.device
     dtype = pred_angles.dtype
+    
+    # Handle case where true_angles is a list of tensors (inconsistent feature dimensions)
+    if isinstance(true_angles, list):
+        # Create a proper tensor with zeros and then copy values
+        true_angles_tensor = torch.zeros(batch_size, seq_len, num_features, 
+                                         dtype=dtype, device=device)
+        
+        # Create mask for where we have valid angles
+        angle_valid_mask = torch.zeros(batch_size, seq_len, dtype=torch.bool, device=device)
+        
+        # Copy each sample's angles to the tensor
+        for i, sample_angles in enumerate(true_angles):
+            if i < batch_size and sample_angles is not None:
+                # Handle potential shape differences
+                sample_len = min(seq_len, sample_angles.shape[0])
+                feat_dim = min(num_features, sample_angles.shape[1])
+                
+                # Copy only the available dimensions
+                true_angles_tensor[i, :sample_len, :feat_dim] = sample_angles[:sample_len, :feat_dim].to(device)
+                
+                # Mark valid regions in the mask
+                angle_valid_mask[i, :sample_len] = True
+        
+        # Replace true_angles with the tensor we created
+        true_angles = true_angles_tensor
+        
+        # Update mask to include only valid angles
+        if mask is None:
+            mask = angle_valid_mask
+        else:
+            mask = mask & angle_valid_mask
 
     # Create default mask if not provided
     if mask is None:

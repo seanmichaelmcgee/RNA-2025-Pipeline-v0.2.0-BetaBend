@@ -134,12 +134,13 @@ class CurriculumManager:
         self.curr_batch_size = batch_size
         self.curr_grad_accum_steps = grad_accum_steps
     
-    def get_filtered_dataset(self, dataset: Dataset) -> Dataset:
+    def get_filtered_dataset(self, dataset: Dataset, length_key=None) -> Dataset:
         """
         Filter dataset to only include sequences within the current stage's max length.
         
         Args:
             dataset: The full dataset to filter
+            length_key: Optional function to extract length from a sample
             
         Returns:
             Filtered dataset with sequences up to the current max length
@@ -156,20 +157,30 @@ class CurriculumManager:
                 sample = dataset[i]
                 length = None
                 
-                # Dictionary-like access
-                if hasattr(sample, 'get'):
-                    # Try common keys for sequence length
-                    if 'length' in sample:
-                        length = sample['length']
-                    elif 'sequence_length' in sample:
-                        length = sample['sequence_length']
-                    elif 'sequence_int' in sample and isinstance(sample['sequence_int'], torch.Tensor):
-                        length = len(sample['sequence_int'])
-                    elif 'sequence' in sample:
-                        if isinstance(sample['sequence'], str):
-                            length = len(sample['sequence'])
-                        elif isinstance(sample['sequence'], torch.Tensor):
-                            length = len(sample['sequence'])
+                # If length_key function is provided, use it
+                if length_key is not None:
+                    try:
+                        length = length_key(sample)
+                    except Exception as e:
+                        logger.warning(f"Error using length_key function on sample {i}: {e}")
+                        length = None
+                
+                # Fallback to common length detection approaches if length_key failed or wasn't provided
+                if length is None:
+                    # Dictionary-like access
+                    if hasattr(sample, 'get'):
+                        # Try common keys for sequence length
+                        if 'length' in sample:
+                            length = sample['length']
+                        elif 'sequence_length' in sample:
+                            length = sample['sequence_length']
+                        elif 'sequence_int' in sample and isinstance(sample['sequence_int'], torch.Tensor):
+                            length = len(sample['sequence_int'])
+                        elif 'sequence' in sample:
+                            if isinstance(sample['sequence'], str):
+                                length = len(sample['sequence'])
+                            elif isinstance(sample['sequence'], torch.Tensor):
+                                length = len(sample['sequence'])
                 
                 # If found length, check against max
                 if length is not None and length <= max_length:
