@@ -1251,24 +1251,38 @@ def main():
             
             # Update curriculum stage if enabled
             if curriculum_manager:
-                # Update curriculum stage based on validation loss
-                next_stage_sequences = None
-                
-                # If we're not at the final stage, analyze available sequences for next stage
-                if curriculum_manager.current_stage < len(curriculum_manager.sequence_stages) - 1:
-                    next_max_len = curriculum_manager.sequence_stages[curriculum_manager.current_stage + 1]
+                try:
+                    # Import the safer dataset analyzer
+                    from scripts.fix_dataset_analyzer import analyze_rna_dataset_lengths
                     
-                    # Analyze dataset to get count of available sequences
-                    seq_stats = analyze_dataset_lengths(train_dataset)
-                    if 'sequences_available' in seq_stats and next_max_len in seq_stats['sequences_available']:
-                        next_stage_sequences = seq_stats['sequences_available'][next_max_len]
-                
-                # Check if curriculum should advance
-                stage_changed = curriculum_manager.update_stage(
-                    epoch=epoch,
-                    epoch_loss=val_metrics["loss"],
-                    num_sequences_at_next_stage=next_stage_sequences
-                )
+                    # Get the dummy or actual validation metrics depending on whether validation was run
+                    current_metrics = dummy_val_metrics if len(val_loader) == 0 else val_metrics
+                    
+                    # Update curriculum stage based on validation loss
+                    next_stage_sequences = None
+                    
+                    # If we're not at the final stage, analyze available sequences for next stage
+                    if curriculum_manager.current_stage < len(curriculum_manager.sequence_stages) - 1:
+                        next_max_len = curriculum_manager.sequence_stages[curriculum_manager.current_stage + 1]
+                        
+                        # Analyze dataset to get count of available sequences
+                        try:
+                            seq_stats = analyze_rna_dataset_lengths(train_dataset)
+                            if 'sequences_available' in seq_stats and next_max_len in seq_stats['sequences_available']:
+                                next_stage_sequences = seq_stats['sequences_available'][next_max_len]
+                                logger.info(f"Found {next_stage_sequences} sequences available for next stage (max_len={next_max_len})")
+                        except Exception as e:
+                            logger.warning(f"Error analyzing dataset for curriculum stage: {e}")
+                    
+                    # Check if curriculum should advance
+                    stage_changed = curriculum_manager.update_stage(
+                        epoch=epoch,
+                        epoch_loss=current_metrics["loss"],
+                        num_sequences_at_next_stage=next_stage_sequences
+                    )
+                except Exception as e:
+                    logger.warning(f"Error updating curriculum stage: {e}")
+                    stage_changed = False
                 
                 # Update dataloaders if stage changed
                 if stage_changed:
