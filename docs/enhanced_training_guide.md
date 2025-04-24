@@ -15,12 +15,18 @@ The enhanced training pipeline builds upon the base training system with several
    - Gradual increase in sequence length during training
    - Automatic stage advancement based on loss improvement
    - Optional adaptive batch sizing based on sequence length
+   - Enhanced error handling for dataset filtering
 
 3. **Advanced Checkpointing**
    - Regular epoch-based checkpoint saving
    - Best model tracking based on validation metrics
    - Step-based checkpointing for large datasets
    - Checkpoint-based training resumption
+
+4. **Robust Error Handling**
+   - Defensive programming for cross-component interfaces
+   - Safe dataset analysis for sequence lengths
+   - Graceful degradation when curriculum stages can't be applied
 
 ## Quick Start
 
@@ -147,13 +153,33 @@ results/enhanced_model/run_YYYYMMDD-HHMMSS/
 
 ## Troubleshooting
 
-If you encounter import errors, the most likely cause is an issue with Python module imports. The fixed training script (`train_enhanced_model_fixed.py`) addresses common import issues by using direct imports and absolute paths.
+If you encounter issues with the training pipeline, here are some common problems and solutions:
 
-Common issues:
+### Import Errors
+- **Module not found errors**: Make sure you're running the script from the project root directory or use absolute paths.
+- **Relative import errors**: The fixed training script (`train_enhanced_model_fixed.py`) addresses common import issues by using direct imports and absolute paths.
 
-1. **Module import errors**: Make sure you're running the script from the project root directory.
-2. **CUDA out of memory**: Try using a smaller batch size, enable gradient checkpointing, or use mixed precision training.
-3. **NaN losses**: Check the learning rate; it might be too high.
+### Memory Issues
+- **CUDA out of memory**: Try using a smaller batch size, enable gradient checkpointing, or use mixed precision training.
+- **Memory spikes during validation**: Set a smaller validation batch size using `--batch_size` and ensure `--gradient_checkpointing` is enabled.
+
+### Curriculum Learning Issues
+- **"No valid lengths found in dataset"**: The enhanced analyzer should handle this robustly now, but verify your dataset has accessible length information.
+- **Curriculum not advancing stages**: Check that you have enough samples at each sequence length stage (min_sequences_per_stage parameter).
+
+### Training Instability
+- **NaN losses**: Check the learning rate; it might be too high. Try starting with a smaller learning rate like 0.0001.
+- **Exploding gradients**: Enable gradient clipping with `--max_grad_norm 1.0`.
+- **Model not learning**: Check your loss weights to ensure they're properly balanced.
+
+### Cross-Component Interface Issues
+
+If you see errors related to cross-component interfaces, particularly between the training script and the curriculum learning components:
+
+1. Look for "Error during dataset length analysis" or "Error during curriculum filtering" warnings in the logs.
+2. Check that the dataset items have a consistent structure with expected fields.
+3. Use the debugging features by adding `--debug` and `--debug_samples 10` to test with a small dataset first.
+4. Inspect the dataset manually to ensure it has the expected fields by adding temporary logging in the data loading code.
 
 ## Example Workflow
 
