@@ -4,7 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build/Test Commands
 - Install environment: `mamba env create -f environment.yml` (or `conda env create -f environment.yml`)
-- Activate environment: `mamba activate rna-3d-folding` (or `conda activate rna-3d-folding`)
+- Activate environment: 
+  ```bash
+  # IMPORTANT: Always initialize mamba/conda shell first
+  eval "$(mamba shell hook --shell bash)"
+  mamba activate rna-3d-folding
+  
+  # Or for conda:
+  eval "$(conda shell.bash hook)"
+  conda activate rna-3d-folding
+  ```
 - Run all tests: `python -m pytest tests/`
 - Run single test: `python -m pytest tests/test_data_loading.py::TestRNADataset::test_initialization`
 - Run tests with verbosity: `python -m pytest tests/ -v`
@@ -12,6 +21,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Lint: `black src/ tests/` and `isort src/ tests/`
 - Type checking: `mypy src/`
 - View logs: `tensorboard --logdir=logs/` or using wandb
+- Run enhanced training:
+  ```bash
+  # Run basic training
+  ./scripts/examples/train_basic.sh
+  
+  # Run with curriculum learning
+  ./scripts/examples/train_curriculum.sh
+  
+  # Run in debug mode (small dataset)
+  ./scripts/examples/train_debug.sh
+  
+  # See docs/enhanced_training_guide.md for comprehensive documentation
+  ```
 
 ## Code Style
 - Import order: standard lib, third-party packages, local modules
@@ -37,11 +59,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Core Components
 1. Data Loading: `src/data_loading.py` - Dataset implementation for feature handling
+   - Fixed version: `src/data_loading_fixed.py` - With absolute imports for compatibility
 2. Embeddings: `src/models/embeddings.py` - Sequence embeddings and positional encoding
 3. Transformer: `src/models/transformer_block.py` - Self-attention mechanisms 
 4. IPA Module: `src/models/ipa_module.py` - Coordinate prediction
 5. Loss Functions: `src/losses.py` - FAPE loss and auxiliaries
 6. Main Model: `src/models/rna_folding_model.py` - End-to-end architecture
+7. Enhanced Training: `scripts/train_enhanced_model_fixed.py` - Advanced training pipeline
+   - Memory optimization (mixed precision, gradient checkpointing)
+   - Curriculum learning (progressive sequence length training)
+   - Advanced checkpointing (regular, best-model, and emergency checkpoints)
 
 ## Development Philosophy
 - Use multi-instance architecture with focused components
