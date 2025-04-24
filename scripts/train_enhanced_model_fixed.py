@@ -290,17 +290,59 @@ def create_datasets(args, curriculum_manager=None, debug=False):
     
     # Apply curriculum filtering if enabled
     if curriculum_manager is not None and PIPELINE_UTILS_AVAILABLE:
-        # Analyze sequence lengths
-        train_stats = analyze_dataset_lengths(train_dataset)
-        val_stats = analyze_dataset_lengths(val_dataset)
-        
-        logger.info(f"Training dataset length stats: min={train_stats['min']}, "
-                   f"max={train_stats['max']}, mean={train_stats['mean']:.1f}")
-        logger.info(f"Validation dataset length stats: min={val_stats['min']}, "
-                   f"max={val_stats['max']}, mean={val_stats['mean']:.1f}")
-        
-        # Filter datasets based on current curriculum stage
-        train_dataset = curriculum_manager.get_filtered_dataset(train_dataset)
+        try:
+            # Import the safer dataset analyzer
+            from scripts.fix_dataset_analyzer import analyze_rna_dataset_lengths
+            
+            # Analyze sequence lengths with our safer function
+            logger.info("Analyzing dataset lengths with enhanced analyzer...")
+            train_stats = analyze_rna_dataset_lengths(train_dataset)
+            val_stats = analyze_rna_dataset_lengths(val_dataset)
+            
+            # Log stats if available
+            if train_stats["count"] > 0:
+                logger.info(f"Training dataset length stats: min={train_stats['min']}, "
+                          f"max={train_stats['max']}, mean={train_stats['mean']:.1f}")
+            else:
+                logger.warning("No valid lengths found in training dataset. Skipping curriculum filtering.")
+                
+            if val_stats["count"] > 0:
+                logger.info(f"Validation dataset length stats: min={val_stats['min']}, "
+                          f"max={val_stats['max']}, mean={val_stats['mean']:.1f}")
+            
+            # Only apply curriculum filtering if we found valid lengths
+            if train_stats["count"] > 0:
+                try:
+                    # Get current max length from curriculum manager
+                    curr_max_len = curriculum_manager.get_current_max_length()
+                    logger.info(f"Applying curriculum filtering with max length {curr_max_len}...")
+                    
+                    # Define a length getter function for the dataset
+                    def get_length(sample):
+                        if isinstance(sample, dict) and "length" in sample:
+                            return sample["length"]
+                        elif isinstance(sample, dict) and "sequence_int" in sample:
+                            return len(sample["sequence_int"])
+                        else:
+                            return 0
+                    
+                    # Filter datasets based on current curriculum stage
+                    filtered_dataset = curriculum_manager.get_filtered_dataset(
+                        train_dataset, length_key=get_length
+                    )
+                    
+                    # Only use filtered dataset if it's not empty
+                    if len(filtered_dataset) > 0:
+                        logger.info(f"Curriculum filtering applied: {len(train_dataset)} -> {len(filtered_dataset)} samples")
+                        train_dataset = filtered_dataset
+                    else:
+                        logger.warning("Curriculum filtering resulted in empty dataset. Using original dataset.")
+                except Exception as e:
+                    logger.warning(f"Error during curriculum filtering: {e}")
+                    logger.warning("Using original dataset without curriculum filtering.")
+        except Exception as e:
+            logger.warning(f"Error during dataset length analysis: {e}")
+            logger.warning("Proceeding without curriculum filtering.")
     
     return train_dataset, val_dataset
 
@@ -324,13 +366,44 @@ def create_dataloaders(args, train_dataset, val_dataset, curriculum_manager=None
     else:
         # Fallback to original collate function and custom implementation
         def length_limited_collate(batch):
-            # Get batch size and maximum sequence length (respect max_seq_len limit)
+            # Safety check for empty batch
+            if not batch:
+                return {}
+                
+            # Get batch size
             batch_size = len(batch)
-            max_len = min(max(sample["length"] for sample in batch), max_seq_len)
+            
+            # Safe function to get sample length
+            def get_sample_length(sample):
+                if isinstance(sample, dict) and "length" in sample:
+                    return sample["length"]
+                elif isinstance(sample, dict) and "sequence_int" in sample:
+                    return len(sample["sequence_int"])
+                elif hasattr(sample, "length"):
+                    return sample.length
+                elif hasattr(sample, "__len__"):
+                    return len(sample)
+                else:
+                    logger.warning(f"Cannot determine length for sample: {type(sample)}")
+                    return 0
+            
+            # Get max length in batch (safely)
+            try:
+                sample_lengths = [get_sample_length(sample) for sample in batch]
+                if not sample_lengths or max(sample_lengths) == 0:
+                    logger.warning("No valid lengths found in batch. Using default max_seq_len.")
+                    max_len = max_seq_len
+                else:
+                    max_len = min(max(sample_lengths), max_seq_len)
+            except Exception as e:
+                logger.warning(f"Error calculating max length: {e}")
+                max_len = max_seq_len
             
             # Apply sequence length limit to each sample if needed
             for sample in batch:
-                if sample["length"] > max_seq_len:
+                sample_len = get_sample_length(sample)
+                
+                if sample_len > max_seq_len:
                     # Trim all sequence-related tensors
                     for key, value in sample.items():
                         if isinstance(value, torch.Tensor):
@@ -342,7 +415,8 @@ def create_dataloaders(args, train_dataset, val_dataset, curriculum_manager=None
                                 sample[key] = value[:max_seq_len, :min(value.shape[1], max_seq_len)]
                     
                     # Update the length
-                    sample["length"] = max_seq_len
+                    if isinstance(sample, dict):
+                        sample["length"] = max_seq_len
             
             # Use the original collate function now that lengths are restricted
             return collate_fn(batch)
